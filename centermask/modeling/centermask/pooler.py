@@ -49,6 +49,8 @@ def assign_boxes_to_levels_by_ratio(instances, min_level, max_level, is_train=Fa
     img_areas = cat([_img_area(instance_i) for instance_i in instances])
 
     # Eqn.(2) in the CenterMask paper
+    if torch.onnx.is_in_onnx_export():
+        img_areas = img_areas[:box_areas]
     level_assignments = torch.ceil(
         max_level - torch.log2(img_areas / box_areas + eps)
     )

@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import argparse
 import onnxruntime
 from collections import OrderedDict
@@ -8,6 +9,12 @@ from centermask.evaluation import COCOEvaluator
 from detectron2.data import build_detection_test_loader
 from detectron2.evaluation import print_csv_format
 from detectron2.export import add_export_config
+from detectron2.modeling.postprocessing import detector_postprocess
+from detectron2.structures import Instances, Boxes
+
+
+def to_numpy(tensor: torch.Tensor):
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 
 def setup_cfg(arg_parser):
@@ -44,15 +51,49 @@ def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
     return image_tensor
 
 
+def single_wrap_outputs(tuple_outputs: tuple) -> list:
+    """
+    将元组形式的模型输出重新封装成[Instances.fields]的形式
+    :param tuple_outputs:
+    :return:
+    """
+    instances = Instances((1333, 1333))
+    tuple_outputs = [torch.tensor(x) for x in tuple_outputs]
+    instances.set('locations', tuple_outputs[0])
+    instances.set('mask_scores', tuple_outputs[1])
+    instances.set('pred_boxes', Boxes(tuple_outputs[2]))
+    instances.set('pred_classes', tuple_outputs[3])
+    instances.set('pred_masks', tuple_outputs[4])
+    instances.set('scores', tuple_outputs[5])
+
+    return [instances]
+
+
+def postprocess(instances: list, height, width):
+    """
+    Rescale the output instances to the target size.
+    :param instances: list[Instances]
+    :param batched_inputs: list[dict[str, torch.Tensor]]
+    :return:
+    """
+    # note: private function; subject to changes
+    processed_results = []
+    for results_per_image in instances:
+        r = detector_postprocess(results_per_image, height, width)
+        processed_results.append({"instances": r})
+    return processed_results
+
 def inference_on_dataset(session, data_loader, evaluator):
     for idx, inputs in enumerate(data_loader):
-        inputs, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
-        print('\n' * 5, h, w, inputs.shape, '\n' * 5)
-        inputs = single_preprocessing(inputs)
-
+        image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
+        # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
+        image = single_preprocessing(image).to(torch.float32)
+        image = to_numpy(image.unsqueeze(0))
         lst_output_nodes = [node.name for node in session.get_outputs()]
         input_node = [node.name for node in session.get_inputs()][0]
-        outputs = session.run(lst_output_nodes, {input_node: inputs})
+        outputs = session.run(lst_output_nodes, {input_node: image})
+        outputs = single_wrap_outputs(outputs)
+        outputs = postprocess(outputs, h, w)
         evaluator.process(inputs, outputs)
     return evaluator.evaluate()
 

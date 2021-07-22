@@ -75,6 +75,7 @@ class Trainer(DefaultTrainer):
             return PascalVOCDetectionEvaluator(dataset_name)
         elif evaluator_type == "lvis":
             return LVISEvaluator(dataset_name, output_dir=output_folder)
+        print('\n'*10, evaluator_list, '\n'*10)
         if len(evaluator_list) == 0:
             raise NotImplementedError(
                 "no Evaluator for the dataset {} with the type {}".format(

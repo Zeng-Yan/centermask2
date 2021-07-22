@@ -84,6 +84,7 @@ def postprocess(instances: list, height, width):
     return processed_results
 
 def inference_on_dataset(session, data_loader, evaluator):
+    evaluator.reset()
     for idx, inputs in enumerate(data_loader):
         image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
         # print('\n' * 5, h, w, inputs.shape, '\n' * 5)

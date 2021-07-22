@@ -163,7 +163,7 @@ def postprocess(instances: list, batched_inputs: list):
 if __name__ == "__main__":
     '''
     run this file like:
-    python pth_to_onnx.py --config-file "configs/centermask/zy_model_config.yaml" --pic-file "000000000016.jpg" /
+    python pth_to_onnx.py --config-file "configs/centermask/zy_model_config.yaml" --pic-file "000000000139.jpg" /
     --onnx MODEL.WEIGHTS "/export/home/zy/centermask2/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # modified forward function of model
@@ -232,5 +232,5 @@ if __name__ == "__main__":
     if args.onnx:
         torch.onnx.export(model, inputs, 'centermask2.onnx',
                           input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes,
-                          opset_version=11, verbose=False)
+                          opset_version=11, verbose=True)
 

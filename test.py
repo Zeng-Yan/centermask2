@@ -1,3 +1,4 @@
+import torch
 import argparse
 import onnxruntime
 from collections import OrderedDict
@@ -23,9 +24,32 @@ def setup_cfg(arg_parser):
     return config
 
 
+def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
+    """
+        Normalize and pad the input images.
+    """
+    # Normalize
+    pixel_mean = torch.tensor([103.53, 116.28, 123.675]).view(-1, 1, 1)
+    pixel_std = torch.tensor([1.0, 1.0, 1.0]).view(-1, 1, 1)
+    image_tensor = (image_tensor - pixel_mean) / pixel_std
+
+    # Padding
+    pad_h = 1344 - image_tensor.shape[1]
+    pad_w = 1344 - image_tensor.shape[2]
+    l, t = pad_w // 2, pad_h // 2
+    r, b = pad_w - l, pad_h - t
+    print(f'shape:{image_tensor.shape}, padding={(l, r, t, b)}')
+    image_tensor = nn.ZeroPad2d(padding=(l, r, t, b))(image_tensor)
+
+    return image_tensor
+
+
 def inference_on_dataset(session, data_loader, evaluator):
     for idx, inputs in enumerate(data_loader):
-        print('\n'*5, inputs, '\n'*5)
+        inputs, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
+        print('\n' * 5, h, w, inputs.shape, '\n' * 5)
+        inputs = single_preprocessing(inputs)
+
         lst_output_nodes = [node.name for node in session.get_outputs()]
         input_node = [node.name for node in session.get_inputs()][0]
         outputs = session.run(lst_output_nodes, {input_node: inputs})

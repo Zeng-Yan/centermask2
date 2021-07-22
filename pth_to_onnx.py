@@ -163,8 +163,8 @@ def postprocess(instances: list, batched_inputs: list):
 if __name__ == "__main__":
     '''
     run this file like:
-    python p_onnx.py --config-file "configs/centermask/zy_model_config.yaml" --pic-file "000000000139.jpg" /
-    --onnx MODEL.WEIGHTS "/home/zeng/1.5/centermask2/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
+    python pth_to_onnx.py --config-file "configs/centermask/zy_model_config.yaml" --pic-file "000000000016.jpg" /
+    --onnx MODEL.WEIGHTS "/export/home/zy/centermask2/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # modified forward function of model
     META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
@@ -192,7 +192,8 @@ if __name__ == "__main__":
 
     # build torch model
     model = build_model(cfg)
-    path_pth = 'centermask2-V-39-eSE-FPN-ms-3x.pth'
+    # path_pth = 'centermask2-V-39-eSE-FPN-ms-3x.pth'
+    path_pth = cfg.MODEL.WEIGHTS
     check_keys(model, torch.load(path_pth)['model'])  # compare keys
     DetectionCheckpointer(model).load(path_pth)  # load weights
     model.eval()

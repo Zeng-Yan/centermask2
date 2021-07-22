@@ -1,7 +1,6 @@
 import onnxruntime
 import torch
 import torch.nn as nn
-import numpy as np
 
 import detectron2.data.transforms as T
 
@@ -44,8 +43,12 @@ def to_numpy(tensor: torch.Tensor):
 
 
 if __name__ == '__main__':
+    '''
+    run this file like:
+    python eval_onnx.py
+    '''
     # set path
-    img_path = '000000000016.jpg'
+    img_path = '000000000001.jpg'
     onnx_path = 'centermask2.onnx'
 
     # data processing

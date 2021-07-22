@@ -119,7 +119,7 @@ def convert_boxes_to_pooler_format(box_lists):
 
     def fmt_box_list(box_tensor, batch_index):
         repeated_index = torch.full(
-            (len(box_tensor), 1), batch_index, dtype=box_tensor.dtype, device=box_tensor.device
+            (box_tensor.shape[0], 1), batch_index, dtype=box_tensor.dtype, device=box_tensor.device
         )
         return cat((repeated_index, box_tensor), dim=1)
 

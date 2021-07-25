@@ -85,17 +85,25 @@ if __name__ == "__main__":
 
     # forward
     with torch.no_grad():
+        batched_inputs = [{"image": inputs.squeeze(0), "height": batched_inputs[0]['height'], "width": batched_inputs[0]['width']}]
         outputs1 = origin_model.inference(batched_inputs, do_postprocess=False)
         outputs2 = torch_model(inputs)
-        print(outputs1, outputs2)
+
+        o1 = single_flatten_to_tuple(outputs1[0])
+        o2 = outputs2
+        # print(f'before processing:\n {o1[4]} \n {o2[4]}\n')
+        print(f'{o1[4].shape}, {o2[4].shape}\n {(o1[4]-o2[4]).sum()}')
         # print('\n' * 5, f'shapes of model outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
 
     # postprocessing
     outputs1 = origin_model._postprocess(outputs1, batched_inputs, origin_model.preprocess_image(batched_inputs).image_sizes)
     outputs2 = single_wrap_outputs(outputs2)
     outputs2 = postprocess(outputs2, batched_inputs[0]['height'], batched_inputs[0]['width'])  # [{'instances':}]
-    print(outputs1, outputs2)
-    outputs2 = single_flatten_to_tuple(outputs2[0]['instances'])
+
+    o1 = single_flatten_to_tuple(outputs1[0]['instances'])
+    o2 = single_flatten_to_tuple(outputs2[0]['instances'])
+    print(f'after processing:\n {o1[4]} \n {o2[4]}\n')
+    print(f'{o1[4].shape}, {o2[4].shape}\n {(o1[4]^o2[4]).sum()}')
     # print('\n' * 5, f'shapes of post processed outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
 
     # build onnx model
@@ -104,5 +112,5 @@ if __name__ == "__main__":
     onnx_input = inputs.detach().cpu().numpy()
     lst_output_nodes = [node.name for node in onnx_session.get_outputs()]
     input_node = [node.name for node in onnx_session.get_inputs()][0]
-    outputs3 = onnx_session.run(lst_output_nodes, {input_node: img})
-    print(outputs3)
+    outputs3 = onnx_session.run(lst_output_nodes, {input_node: onnx_input})
+    print(outputs3[4])

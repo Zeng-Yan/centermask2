@@ -135,6 +135,7 @@ class COCOEvaluator(DatasetEvaluator):
                 "instances" that contains :class:`Instances`.
         """
         for input, output in zip(inputs, outputs):
+            # print(input["image_id"], outputs[0]['instances'].get_fields()['pred_masks'].shape, '\n')
             prediction = {"image_id": input["image_id"]}
 
             if "instances" in output:

@@ -58,7 +58,7 @@ def single_wrap_outputs(tuple_outputs: tuple) -> list:
     :return:
     """
     instances = Instances((1333, 1333))
-    tuple_outputs = [torch.tensor(x) for x in tuple_outputs]
+    tuple_outputs = [torch.tensor(x)[:50] for x in tuple_outputs]
     instances.set('locations', tuple_outputs[0])
     instances.set('mask_scores', tuple_outputs[1])
     instances.set('pred_boxes', Boxes(tuple_outputs[2]))
@@ -83,9 +83,24 @@ def postprocess(instances: list, height, width):
         processed_results.append({"instances": r})
     return processed_results
 
+
+def single_flatten_to_tuple(wrapped_outputs: object):
+    """
+    模型输出被[Instances.fields]的形式封装，将不同的输出拆解出来组成元组
+    :param wrapped_outputs:
+    :return:
+    """
+    field = wrapped_outputs.get_fields()
+    tuple_outputs = (field['locations'], field['mask_scores'],
+                     field['pred_boxes'].tensor, field['pred_classes'],
+                     field['pred_masks'], field['scores'])
+    return tuple_outputs
+
+
 def inference_on_dataset(session, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
+        print(inputs[0]['file_name'])
         image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
         # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
         image = single_preprocessing(image).to(torch.float32)

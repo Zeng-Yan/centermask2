@@ -13,6 +13,8 @@ from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 from detectron2.structures import Instances, Boxes
 from centermask.config import get_cfg
 
+from test import single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
+
     # lst_of_fields = [instance.fields for instance in wrapped_outputs]
     #
     # lst_of_pred_boxes = [field['pred_boxes'].tensor for field in lst_of_fields]
@@ -92,74 +94,6 @@ def get_sample_inputs(path: str) -> list:
     return [dic_img]
 
 
-def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
-    """
-    对resize后的图片做Normalize和padding
-    """
-    # Normalize
-    pixel_mean = torch.tensor([103.53, 116.28, 123.675]).view(-1, 1, 1)
-    pixel_std = torch.tensor([1.0, 1.0, 1.0]).view(-1, 1, 1)
-    image_tensor = (image_tensor - pixel_mean) / pixel_std
-    # Padding
-    pad_h = 1344 - image_tensor.shape[1]
-    pad_w = 1344 - image_tensor.shape[2]
-    l, t = pad_w // 2, pad_h // 2
-    r, b = pad_w - l, pad_h - t
-    print(f'shape:{image_tensor.shape}, padding={(l, r, t, b)}')
-    image_tensor = nn.ZeroPad2d(padding=(l, r, t, b))(image_tensor)
-
-    return image_tensor
-
-
-def single_flatten_to_tuple(wrapped_outputs: object):
-    """
-    模型输出被[Instances.fields]的形式封装，将不同的输出拆解出来组成元组
-    :param wrapped_outputs:
-    :return:
-    """
-    field = wrapped_outputs.get_fields()
-    tuple_outputs = (field['locations'], field['mask_scores'],
-                     field['pred_boxes'].tensor, field['pred_classes'],
-                     field['pred_masks'], field['scores'])
-    return tuple_outputs
-
-
-def single_wrap_outputs(tuple_outputs: tuple) -> list:
-    """
-    将元组形式的模型输出重新封装成[Instances.fields]的形式
-    :param tuple_outputs:
-    :return:
-    """
-    instances = Instances((1333, 1333))
-    instances.set('locations', tuple_outputs[0])
-    instances.set('mask_scores', tuple_outputs[1])
-    instances.set('pred_boxes', Boxes(tuple_outputs[2]))
-    instances.set('pred_classes', tuple_outputs[3])
-    instances.set('pred_masks', tuple_outputs[4])
-    instances.set('scores', tuple_outputs[5])
-
-    return [instances]
-
-
-def postprocess(instances: list, batched_inputs: list):
-    """
-    Rescale the output instances to the target size.
-    :param instances: list[Instances]
-    :param batched_inputs: list[dict[str, torch.Tensor]]
-    :return:
-    """
-    # note: private function; subject to changes
-    processed_results = []
-    for results_per_image, input_per_image in zip(
-        instances, batched_inputs
-    ):
-        height = input_per_image.get("height", 1333)
-        width = input_per_image.get("width", 1333)
-        r = detector_postprocess(results_per_image, height, width)
-        processed_results.append({"instances": r})
-    return processed_results
-
-
 if __name__ == "__main__":
     '''
     run this file like:
@@ -176,6 +110,7 @@ if __name__ == "__main__":
     parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file")
     parser.add_argument("--pic-file", default="", metavar="FILE", help="path to pic file")
     parser.add_argument("--onnx", action="store_true")
+    parser.add_argument("--v", action="store_true")
     # parser.add_argument("--run-eval", action="store_true")
     parser.add_argument(
         "opts",
@@ -232,5 +167,5 @@ if __name__ == "__main__":
     if args.onnx:
         torch.onnx.export(model, inputs, 'centermask2.onnx',
                           input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes,
-                          opset_version=11, verbose=True)
+                          opset_version=11, verbose=args.v)
 

@@ -15,7 +15,8 @@ from detectron2.structures import Instances, Boxes
 from centermask.config import get_cfg
 
 from test import single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
-from pth_to_onnx import GeneralizedRCNN
+from pth_to_onnx import GeneralizedRCNN, FakeImageList
+from modified_class import GeneralizedRCNN as MRCNN
 
 
 def setup_cfg(args):
@@ -42,6 +43,11 @@ def get_sample_inputs(path: str) -> list:
     image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
     dic_img = {"image": image, "height": height, "width": width}
     return [dic_img]
+
+
+def cmp(a, b):
+    n = len(a)
+    return [torch.abs(a[i]-b[i]).sum() for i in range(n)]
 
 
 if __name__ == "__main__":
@@ -71,6 +77,9 @@ if __name__ == "__main__":
     inputs = inputs.unsqueeze(0)
 
     # build origin model
+    META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
+    META_ARCH_REGISTRY.register(MRCNN)  # re-registry RCNN
+    print('USING MODIFIED META ARCHITECTURE (inference)')
     origin_model = build_model(cfg)
     DetectionCheckpointer(origin_model).load(cfg.MODEL.WEIGHTS)  # load weights
     origin_model.eval()
@@ -78,39 +87,60 @@ if __name__ == "__main__":
     # build modified model
     META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
     META_ARCH_REGISTRY.register(GeneralizedRCNN)  # re-registry RCNN
-    print('USING MODIFIED META ARCHITECTURE')
+    print('USING MODIFIED META ARCHITECTURE (forward)')
     torch_model = build_model(cfg)
     DetectionCheckpointer(torch_model).load(cfg.MODEL.WEIGHTS)  # load weights
     torch_model.eval()
 
-    # forward
+    # fix input compare model output
     with torch.no_grad():
-        batched_inputs = [{"image": inputs.squeeze(0), "height": batched_inputs[0]['height'], "width": batched_inputs[0]['width']}]
-        outputs1 = origin_model.inference(batched_inputs, do_postprocess=False)
+        img_lst = FakeImageList(inputs, [(batched_inputs[0]['height'], batched_inputs[0]['width'])])
+        outputs1 = origin_model.inference(img_lst, do_preprocess=False, do_postprocess=False)
         outputs2 = torch_model(inputs)
-
         o1 = single_flatten_to_tuple(outputs1[0])
         o2 = outputs2
-        # print(f'before processing:\n {o1[4]} \n {o2[4]}\n')
-        print(f'{o1[4].shape}, {o2[4].shape}\n {(o1[4]-o2[4]).sum()}')
-        # print('\n' * 5, f'shapes of model outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
+        print(f'model outputs of fixed inputs:\n{cmp(o1, o2)}\n')
 
-    # postprocessing
-    outputs1 = origin_model._postprocess(outputs1, batched_inputs, origin_model.preprocess_image(batched_inputs).image_sizes)
-    outputs2 = single_wrap_outputs(outputs2)
-    outputs2 = postprocess(outputs2, batched_inputs[0]['height'], batched_inputs[0]['width'])  # [{'instances':}]
+    # compare post processing
+    o1 = origin_model._postprocess(outputs1, batched_inputs, img_lst.image_sizes)
+    o2 = postprocess(outputs1, batched_inputs[0]['height'], batched_inputs[0]['width'])  # [{'instances':}]
+    print(f'process outputs of fixed inputs:\n{cmp(o1, o2)}\n')
 
-    o1 = single_flatten_to_tuple(outputs1[0]['instances'])
-    o2 = single_flatten_to_tuple(outputs2[0]['instances'])
-    print(f'after processing:\n {o1[4]} \n {o2[4]}\n')
-    print(f'{o1[4].shape}, {o2[4].shape}\n {(o1[4]^o2[4]).sum()}')
-    # print('\n' * 5, f'shapes of post processed outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
 
-    # build onnx model
-    onnx_path = 'centermask2.onnx'
-    onnx_session = onnxruntime.InferenceSession(onnx_path)
-    onnx_input = inputs.detach().cpu().numpy()
-    lst_output_nodes = [node.name for node in onnx_session.get_outputs()]
-    input_node = [node.name for node in onnx_session.get_inputs()][0]
-    outputs3 = onnx_session.run(lst_output_nodes, {input_node: onnx_input})
-    print(outputs3[4])
+    # forward
+    # with torch.no_grad():
+    #     batched_inputs = [{"image": inputs.squeeze(0), "height": batched_inputs[0]['height'], "width": batched_inputs[0]['width']}]
+    #     outputs1 = origin_model.inference(batched_inputs, do_postprocess=False)
+    #     outputs2 = torch_model(inputs)
+    #
+    #     o1 = single_flatten_to_tuple(outputs1[0])
+    #     o2 = outputs2
+    #     # print(f'before processing:\n {o1[4]} \n {o2[4]}\n')
+    #     print(f'{o1[4].shape}, {o2[4].shape}\n {(o1[4]-o2[4]).sum()}')
+    #     # print('\n' * 5, f'shapes of model outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
+    #
+    # # postprocessing
+    # outputs1 = origin_model._postprocess(outputs1, batched_inputs, origin_model.preprocess_image(batched_inputs).image_sizes)
+    # outputs2 = single_wrap_outputs(outputs2)
+    # outputs2 = postprocess(outputs2, batched_inputs[0]['height'], batched_inputs[0]['width'])  # [{'instances':}]
+    #
+    # o1 = single_flatten_to_tuple(outputs1[0]['instances'])
+    # o2 = single_flatten_to_tuple(outputs2[0]['instances'])
+    # print(f'after processing:\n {o1[4]} \n {o2[4]}\n')
+    # print(f'{o1[4].shape}, {o2[4].shape}\n {(o1[4]^o2[4]).sum()}')
+    # # print('\n' * 5, f'shapes of post processed outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
+    #
+    # # build onnx model
+    # onnx_path = 'centermask2.onnx'
+    # onnx_session = onnxruntime.InferenceSession(onnx_path)
+    # onnx_input = inputs.detach().cpu().numpy()
+    # lst_output_nodes = [node.name for node in onnx_session.get_outputs()]
+    # input_node = [node.name for node in onnx_session.get_inputs()][0]
+    # outputs3 = onnx_session.run(lst_output_nodes, {input_node: onnx_input})
+    # print(outputs3[4])
+
+
+
+    # compare post processing
+
+    #

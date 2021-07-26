@@ -26,14 +26,17 @@ from test import single_wrap_outputs, single_preprocessing, postprocess, single_
 
 
 class FakeImageList(object):
-    def __init__(self, tensor: torch.Tensor):
+    def __init__(self, tensor: torch.Tensor, hw=None):
         """
         伪造的detectron2中的ImageList类，只提供模型推理会使用到的len()和image_sizes
         :param tensor: Tensor of shape (N, H, W)
         image_sizes (list[tuple[H, W]]): Each tuple is (h, w). It can be smaller than (H, W) due to padding.
         """
+        if hw is None:
+            self.image_sizes = [(1333, 1333) for _ in range(tensor.shape[0])]
+        else:
+            self.image_sizes = hw
         self.tensor = tensor
-        self.image_sizes = [(1333, 1333) for _ in range(tensor.shape[0])]
 
     def __len__(self) -> int:
         return len(self.image_sizes)

@@ -11,6 +11,11 @@ from detectron2.evaluation import print_csv_format
 from detectron2.export import add_export_config
 from detectron2.modeling.postprocessing import detector_postprocess
 from detectron2.structures import Instances, Boxes
+from detectron2.modeling import build_model
+from detectron2.checkpoint import DetectionCheckpointer
+from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
+
+from modified_class import GeneralizedRCNN, FakeImageList
 
 
 def to_numpy(tensor: torch.Tensor):
@@ -114,12 +119,29 @@ def inference_on_dataset(session, data_loader, evaluator):
     return evaluator.evaluate()
 
 
-def test(session, config):
+def inference_on_pth(model, data_loader, evaluator):
+    evaluator.reset()
+    for idx, inputs in enumerate(data_loader):
+        print(inputs[0]['file_name'])
+        image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
+        # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
+        image = single_preprocessing(image).to(torch.float32)
+        img_lst = FakeImageList(image, [(inputs[0]['height'], inputs[0]['width'])])
+        outputs = model.inference(img_lst, do_preprocess=False, do_postprocess=False)
+        outputs = model._postprocess(outputs, inputs, img_lst.image_sizes)
+        evaluator.process(inputs, outputs)
+    return evaluator.evaluate()
+
+
+def test(launcher, config, typ):
     results = OrderedDict()
     for idx, dataset_name in enumerate(config.DATASETS.TEST):
         data_loader = build_detection_test_loader(config, dataset_name)
         evaluator = COCOEvaluator(dataset_name, output_dir=config.OUTPUT_DIR)
-        results_i = inference_on_dataset(session, data_loader, evaluator)
+        if typ == 'onnx':
+            results_i = inference_on_dataset(launcher, data_loader, evaluator)
+        else:
+            results_i = inference_on_pth(launcher, data_loader, evaluator)
         results[dataset_name] = results_i
         print_csv_format(results_i)
 
@@ -129,18 +151,33 @@ def test(session, config):
 
 
 if __name__ == '__main__':
+    '''
+    run this file like:
+    python test.py --config-file "configs/centermask/zy_model_config.yaml" \
+     --type pth MODEL.WEIGHTS "/export/home/zy/centermask2/centermask2-V-39-eSE-FPN-ms-3x.pth"
+    '''
     # set cfg
     parser = argparse.ArgumentParser(description="Convert a model using tracing.")
     parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file")
+    parser.add_argument("--type", default="onnx", help="model type")
     parser.add_argument("opts", help="Modify config options using the command-line", default=None, nargs=argparse.REMAINDER,)
     args = parser.parse_args()
     cfg = setup_cfg(args)
 
     # build onnx model
-    onnx_path = 'centermask2.onnx'
-    onnx_session = onnxruntime.InferenceSession(onnx_path)
-
+    if args.type == 'onnx':
+        onnx_path = 'centermask2.onnx'
+        onnx_session = onnxruntime.InferenceSession(onnx_path)
+        lch = onnx_session
+    else:
+        META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
+        META_ARCH_REGISTRY.register(GeneralizedRCNN)  # re-registry RCNN
+        print('USING MODIFIED META ARCHITECTURE (inference)')
+        origin_model = build_model(cfg)
+        DetectionCheckpointer(origin_model).load(cfg.MODEL.WEIGHTS)  # load weights
+        origin_model.eval()
+        lch = origin_model
     # inference
 
     # test on onnx model
-    test(onnx_session, cfg)
+    test(lch, cfg, args.type)

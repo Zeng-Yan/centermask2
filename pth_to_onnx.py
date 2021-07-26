@@ -1,20 +1,15 @@
 import torch
-import torch.nn as nn
 import argparse
 
-import detectron2.data.transforms as T
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 from detectron2.modeling import build_model
-from detectron2.modeling.postprocessing import detector_postprocess
 from detectron2.checkpoint import DetectionCheckpointer
-from detectron2.data import build_detection_test_loader, detection_utils
-from detectron2.export import add_export_config
+
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
-from detectron2.structures import Instances, Boxes
-from centermask.config import get_cfg
 
 from test import single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
-
+from modified_class import FakeImageList
+from deploy_utils import check_keys, setup_cfg, get_sample_inputs
     # lst_of_fields = [instance.fields for instance in wrapped_outputs]
     #
     # lst_of_pred_boxes = [field['pred_boxes'].tensor for field in lst_of_fields]
@@ -23,23 +18,6 @@ from test import single_wrap_outputs, single_preprocessing, postprocess, single_
     # lst_of_locations = [field['locations'] for field in lst_of_fields]
     # lst_of_pred_masks = [field['pred_masks'] for field in lst_of_fields]
     # lst_of_mask_scores = [field['mask_scores'] for field in lst_of_fields]
-
-
-class FakeImageList(object):
-    def __init__(self, tensor: torch.Tensor, hw=None):
-        """
-        伪造的detectron2中的ImageList类，只提供模型推理会使用到的len()和image_sizes
-        :param tensor: Tensor of shape (N, H, W)
-        image_sizes (list[tuple[H, W]]): Each tuple is (h, w). It can be smaller than (H, W) due to padding.
-        """
-        if hw is None:
-            self.image_sizes = [(1333, 1333) for _ in range(tensor.shape[0])]
-        else:
-            self.image_sizes = hw
-        self.tensor = tensor
-
-    def __len__(self) -> int:
-        return len(self.image_sizes)
 
 
 class GeneralizedRCNN(RCNN):
@@ -59,42 +37,7 @@ class GeneralizedRCNN(RCNN):
         return results
 
 
-def check_keys(model: nn.Module, state_dict: dict):
-    keys_model = set(model.state_dict().keys())
-    keys_state = set(state_dict.keys())
-    keys_miss = keys_model - keys_state
-    keys_used = keys_model & keys_state
-    print(f'{len(keys_model)} keys of model, {len(keys_state)} keys of state_dict')
-    print(f'Count of used keys: {len(keys_used)}')
-    print(f'Count of missing keys: {len(keys_miss)}')
-    print(f'missing keys: {keys_miss}')
-    return 0
 
-
-def setup_cfg(args):
-    """
-        Create configs and perform basic setups.
-    """
-    cfg = get_cfg()
-    # cuda context is initialized before creating dataloader, so we don't fork anymore
-    cfg.DATALOADER.NUM_WORKERS = 0
-    cfg = add_export_config(cfg)
-    cfg.merge_from_file(args.config_file)
-    cfg.merge_from_list(args.opts)
-    cfg.freeze()
-    return cfg
-
-
-def get_sample_inputs(path: str) -> list:
-    # load image from path
-    original_image = detection_utils.read_image(path, format="BGR")
-    height, width = original_image.shape[:2]
-    # resize
-    aug = T.ResizeShortestEdge([800, 800], 1333)  # [800, 800], 1333
-    image = aug.get_transform(original_image).apply_image(original_image)
-    image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
-    dic_img = {"image": image, "height": height, "width": width}
-    return [dic_img]
 
 
 if __name__ == "__main__":

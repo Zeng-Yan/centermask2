@@ -6,7 +6,7 @@ class GeneralizedRCNN(RCNN):
     def inference(
         self,
         batched_inputs,
-        detected_instances,
+        detected_instances=None,
         do_preprocess: bool = True,
         do_postprocess: bool = True,
     ):

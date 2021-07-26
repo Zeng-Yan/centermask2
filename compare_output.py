@@ -47,7 +47,7 @@ def get_sample_inputs(path: str) -> list:
 
 def cmp(a, b):
     n = len(a)
-    return [torch.abs(a[i]-b[i]).sum() for i in range(n)]
+    return [torch.abs(a[i].to(torch.float32)-b[i].to(torch.float32)).sum() for i in range(n)]
 
 
 if __name__ == "__main__":
@@ -104,6 +104,8 @@ if __name__ == "__main__":
     # compare post processing
     o1 = origin_model._postprocess(outputs1, batched_inputs, img_lst.image_sizes)
     o2 = postprocess(outputs1, batched_inputs[0]['height'], batched_inputs[0]['width'])  # [{'instances':}]
+    o1 = single_flatten_to_tuple(o1[0]['instances'])
+    o2 = single_flatten_to_tuple(o2[0]['instances'])
     print(f'process outputs of fixed inputs:\n{cmp(o1, o2)}\n')
 
 

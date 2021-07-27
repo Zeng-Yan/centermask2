@@ -10,7 +10,7 @@ from detectron2.data import detection_utils, MetadataCatalog
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 
 from deploy_utils import setup_cfg, get_sample_inputs
-from test import single_preprocessing, postprocess, single_wrap_outputs
+from test import single_preprocessing, postprocess, single_wrap_outputs, to_numpy
 from pth_to_onnx import GeneralizedRCNN
 
 
@@ -61,14 +61,27 @@ if __name__ == "__main__":
     DetectionCheckpointer(torch_model).load(cfg.MODEL.WEIGHTS)  # load weights
     torch_model.eval()
 
+    # # fix input compare model output
+    # with torch.no_grad():
+    #     outputs = torch_model(inputs)
+    # outputs = single_wrap_outputs(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
+    # outputs = postprocess(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
+    #
+    # # visualize outputs
+    # original_image = detection_utils.read_image(img_path, format="BGR")
+    # pred, visualized_output = run_on_image(outputs[0], original_image)
+    # visualized_output.save('visualized_outputs_mod.jpg')
+
     # fix input compare model output
     with torch.no_grad():
         outputs = torch_model(inputs)
-    outputs = single_wrap_outputs(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
-    outputs = postprocess(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
+    outputs = single_wrap_outputs(outputs, 1344, 1344)
+    outputs = postprocess(outputs, 1344, 1344)
 
     # visualize outputs
-    original_image = detection_utils.read_image(img_path, format="BGR")
+    # o = torch.zeros((1344, 1344, 3))
+    original_image = to_numpy(inputs.squeeze(0)).transpose(1, 2, 0)[:, :, ::-1]
+    print(original_image.shape)
     pred, visualized_output = run_on_image(outputs[0], original_image)
     visualized_output.save('visualized_outputs_mod.jpg')
 
@@ -79,7 +92,8 @@ if __name__ == "__main__":
     DetectionCheckpointer(origin_model).load(cfg.MODEL.WEIGHTS)  # load weights
     origin_model.eval()
     with torch.no_grad():
-        outputs = torch_model(batched_inputs)
+        outputs = origin_model(batched_inputs)
+    original_image = detection_utils.read_image(img_path, format="BGR")
     pred, visualized_output = run_on_image(outputs[0], original_image)
     visualized_output.save('visualized_outputs_ori.jpg')
 

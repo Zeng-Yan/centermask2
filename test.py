@@ -56,13 +56,13 @@ def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
     return image_tensor
 
 
-def single_wrap_outputs(tuple_outputs: tuple) -> list:
+def single_wrap_outputs(tuple_outputs: tuple, height=1333, width=1333) -> list:
     """
     将元组形式的模型输出重新封装成[Instances.fields]的形式
     :param tuple_outputs:
     :return:
     """
-    instances = Instances((1333, 1333))
+    instances = Instances((height, width))
     tuple_outputs = [torch.tensor(x)[:50] for x in tuple_outputs]
     instances.set('locations', tuple_outputs[0])
     instances.set('mask_scores', tuple_outputs[1])
@@ -130,7 +130,7 @@ def inference_fixed(model, data_loader, evaluator):
         outputs = model.inference(img_lst, do_preprocess=False, do_postprocess=False)
         outputs = single_flatten_to_tuple(outputs[0])
         outputs = (x.detach() for x in outputs)
-        outputs = single_wrap_outputs(outputs)
+        outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
         outputs = model._postprocess(outputs, inputs, img_lst.image_sizes)
 
         evaluator.process(inputs, outputs)
@@ -141,6 +141,10 @@ def inference_origin(model, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
         outputs = model(inputs)
+        outputs = single_flatten_to_tuple(outputs[0]['instances'])
+        outputs = (x.detach() for x in outputs)
+        outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
+        outputs = [{'instances': outputs[0]}]
         evaluator.process(inputs, outputs)
     return evaluator.evaluate()
 

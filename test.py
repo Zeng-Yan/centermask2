@@ -127,10 +127,11 @@ def inference_fixed(model, data_loader, evaluator):
         # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
         image = single_preprocessing(image).to(torch.float32).unsqueeze(0)
         img_lst = FakeImageList(image, [(inputs[0]['height'], inputs[0]['width'])])
-        outputs = model.inference(img_lst, do_preprocess=False, do_postprocess=False)
-        outputs = single_flatten_to_tuple(outputs[0])
-        outputs = (x.detach() for x in outputs)
-        outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
+        with torch.no_grad():
+            outputs = model.inference(img_lst, do_preprocess=False, do_postprocess=False)
+        # outputs = single_flatten_to_tuple(outputs[0])
+        # outputs = (x.detach() for x in outputs)
+        # outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
         outputs = model._postprocess(outputs, inputs, img_lst.image_sizes)
 
         evaluator.process(inputs, outputs)
@@ -140,11 +141,12 @@ def inference_fixed(model, data_loader, evaluator):
 def inference_origin(model, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
-        outputs = model(inputs)
-        outputs = single_flatten_to_tuple(outputs[0]['instances'])
-        outputs = (x.detach() for x in outputs)
-        outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
-        outputs = [{'instances': outputs[0]}]
+        with torch.no_grad():
+            outputs = model(inputs)
+        # outputs = single_flatten_to_tuple(outputs[0]['instances'])
+        # outputs = (x.detach() for x in outputs)
+        # outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
+        # outputs = [{'instances': outputs[0]}]
         evaluator.process(inputs, outputs)
     return evaluator.evaluate()
 

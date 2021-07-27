@@ -7,6 +7,7 @@ from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 from detectron2.data import detection_utils, MetadataCatalog
+from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 
 from deploy_utils import setup_cfg, get_sample_inputs
 from test import single_preprocessing, postprocess, single_wrap_outputs
@@ -69,4 +70,18 @@ if __name__ == "__main__":
     # visualize outputs
     original_image = detection_utils.read_image(img_path, format="BGR")
     pred, visualized_output = run_on_image(outputs[0], original_image)
-    visualized_output.save('visualized_outputs.jpg')
+    visualized_output.save('visualized_outputs_mod.jpg')
+
+    # origin
+    META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
+    META_ARCH_REGISTRY.register(RCNN)  # re-registry RCNN
+    origin_model = build_model(cfg)
+    DetectionCheckpointer(origin_model).load(cfg.MODEL.WEIGHTS)  # load weights
+    origin_model.eval()
+    with torch.no_grad():
+        outputs = torch_model(batched_inputs)
+    pred, visualized_output = run_on_image(outputs[0], original_image)
+    visualized_output.save('visualized_outputs_ori.jpg')
+
+
+

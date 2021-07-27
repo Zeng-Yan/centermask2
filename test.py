@@ -102,7 +102,7 @@ def single_flatten_to_tuple(wrapped_outputs: object):
     return tuple_outputs
 
 
-def inference_on_dataset(session, data_loader, evaluator):
+def inference_onnx(session, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
@@ -119,7 +119,7 @@ def inference_on_dataset(session, data_loader, evaluator):
     return evaluator.evaluate()
 
 
-def inference_on_pth(model, data_loader, evaluator):
+def inference_fixed(model, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
@@ -133,15 +133,25 @@ def inference_on_pth(model, data_loader, evaluator):
     return evaluator.evaluate()
 
 
+def inference_origin(model, data_loader, evaluator):
+    evaluator.reset()
+    for idx, inputs in enumerate(data_loader):
+        outputs = model(inputs)
+        evaluator.process(inputs, outputs)
+    return evaluator.evaluate()
+
+
 def test(launcher, config, typ):
     results = OrderedDict()
     for idx, dataset_name in enumerate(config.DATASETS.TEST):
         data_loader = build_detection_test_loader(config, dataset_name)
         evaluator = COCOEvaluator(dataset_name, output_dir=config.OUTPUT_DIR)
         if typ == 'onnx':
-            results_i = inference_on_dataset(launcher, data_loader, evaluator)
+            results_i = inference_onnx(launcher, data_loader, evaluator)
+        elif typ == 'fixed':
+            results_i = inference_fixed(launcher, data_loader, evaluator)
         else:
-            results_i = inference_on_pth(launcher, data_loader, evaluator)
+            results_i = inference_origin(launcher, data_loader, evaluator)
         results[dataset_name] = results_i
         print_csv_format(results_i)
 
@@ -169,15 +179,20 @@ if __name__ == '__main__':
         onnx_path = 'centermask2.onnx'
         onnx_session = onnxruntime.InferenceSession(onnx_path)
         lch = onnx_session
-    else:
+    elif args.type == 'fixed':
         META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
         META_ARCH_REGISTRY.register(GeneralizedRCNN)  # re-registry RCNN
         print('USING MODIFIED META ARCHITECTURE (inference)')
-        origin_model = build_model(cfg)
-        DetectionCheckpointer(origin_model).load(cfg.MODEL.WEIGHTS)  # load weights
-        origin_model.eval()
-        lch = origin_model
-    # inference
+        fixed_model = build_model(cfg)
+        DetectionCheckpointer(fixed_model).load(cfg.MODEL.WEIGHTS)  # load weights
+        fixed_model.eval()
+        lch = fixed_model
+    else:
+        print('USING original META ARCHITECTURE')
+        ori_model = build_model(cfg)
+        DetectionCheckpointer(ori_model).load(cfg.MODEL.WEIGHTS)  # load weights
+        ori_model.eval()
+        lch = ori_model
 
-    # test on onnx model
+    # evaluation
     test(lch, cfg, args.type)

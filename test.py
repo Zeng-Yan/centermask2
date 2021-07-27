@@ -141,6 +141,7 @@ def inference_fixed(model, data_loader, evaluator):
 def inference_origin(model, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
+        print(inputs[0]['file_name'])
         with torch.no_grad():
             outputs = model(inputs)
         # outputs = single_flatten_to_tuple(outputs[0]['instances'])

@@ -6,11 +6,11 @@ from detectron2.utils.visualizer import ColorMode, Visualizer
 from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
-from detectron2.data import detection_utils
+from detectron2.data import detection_utils, MetadataCatalog
 
 from deploy_utils import setup_cfg, get_sample_inputs
-from test import single_preprocessing, postprocess
-from modified_class import GeneralizedRCNN
+from test import single_preprocessing, postprocess, single_wrap_outputs
+from pth_to_onnx import GeneralizedRCNN
 
 
 def run_on_image(predictions, image):
@@ -26,7 +26,7 @@ def run_on_image(predictions, image):
     """
     # Convert image from OpenCV BGR format to Matplotlib RGB format.
     image = image[:, :, ::-1]
-    visualizer = Visualizer(image, cfg.DATASETS.TEST[0], instance_mode=ColorMode.IMAGE)
+    visualizer = Visualizer(image, MetadataCatalog.get(cfg.DATASETS.TEST[0]), instance_mode=ColorMode.IMAGE)
     instances = predictions["instances"]
     vis_output = visualizer.draw_instance_predictions(predictions=instances)
     return predictions, vis_output
@@ -63,6 +63,7 @@ if __name__ == "__main__":
     # fix input compare model output
     with torch.no_grad():
         outputs = torch_model(inputs)
+    outputs = single_wrap_outputs(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
     outputs = postprocess(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
 
     # visualize outputs

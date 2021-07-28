@@ -80,9 +80,9 @@ if __name__ == "__main__":
     # visualize outputs
     # o = torch.zeros((1344, 1344, 3))
     original_image = to_numpy(inputs.squeeze(0)).transpose(1, 2, 0)
-    print(original_image.shape)
+    # print(original_image.shape)
     pred, visualized_output = run_on_image(outputs[0], original_image)
-    visualized_output.save('visualized_outputs_mod.jpg')
+    visualized_output.save('visualized_outputs_pad.jpg')
 
     # origin
     META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry

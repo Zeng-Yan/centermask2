@@ -41,10 +41,11 @@ def inference_fixed(model, data_loader, evaluator):
         img_lst = FakeImageList(image, [(inputs[0]['height'], inputs[0]['width'])])
         with torch.no_grad():
             outputs = model.inference(img_lst, do_preprocess=False, do_postprocess=False)
+        outputs = postprocess(outputs, h, w)
         # outputs = single_flatten_to_tuple(outputs[0])
         # outputs = (x.detach() for x in outputs)
         # outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
-        outputs = model._postprocess(outputs, inputs, img_lst.image_sizes)
+        # outputs = model._postprocess(outputs, inputs, img_lst.image_sizes)
 
         evaluator.process(inputs, outputs)
     return evaluator.evaluate()

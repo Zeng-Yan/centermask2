@@ -15,7 +15,7 @@ MAX_EDGE_SIZE = 1333
 FIXED_EDGE_SIZE = 1344
 
 
-def to_numpy(tensor: torch.Tensor):
+def to_numpy(tensor: torch.Tensor) -> np.array:
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 
@@ -138,11 +138,11 @@ def detector_postprocess(
     """
     results = Instances((h, w), **results.get_fields())
 
-    scale = 800 / min(h, w)
+    scale = MIN_EDGE_SIZE / min(h, w)
     new_h = int(np.floor(h * scale))
     new_w = int(np.floor(w * scale))
-    if max(new_h, new_w) > 1333:
-        scale = 1333 / max(new_h, new_w) * scale
+    if max(new_h, new_w) > MAX_EDGE_SIZE:
+        scale = MAX_EDGE_SIZE / max(new_h, new_w) * scale
 
     scale_x, scale_y = 1/scale, 1/scale
 
@@ -179,89 +179,89 @@ def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padd
     # note: private function; subject to changes
     processed_results = []
     for results_per_image in instances:
-        if padded:
-            locations = results_per_image.get_fields()['locations']
-            print('\n' * 5, results_per_image.get_fields()['pred_boxes'])
-            print('\n' * 5, results_per_image.get_fields()['pred_masks'].shape)
-            locations = postprocess_locations(results_per_image.get_fields()['locations'], (height, width))
-
-            results_per_image.get_fields()['locations'] = locations
-            print('\n' * 5, results_per_image.get_fields()['locations'])
-
-            results_per_image.get_fields()['pred_boxes'] = \
-                postprocess_boxes(results_per_image.get_fields()['pred_boxes'], (height, width))
+        # if padded:
+        #     locations = results_per_image.get_fields()['locations']
+        #     print('\n' * 5, results_per_image.get_fields()['pred_boxes'])
+        #     print('\n' * 5, results_per_image.get_fields()['pred_masks'].shape)
+        #     locations = postprocess_locations(results_per_image.get_fields()['locations'], (height, width))
+        #
+        #     results_per_image.get_fields()['locations'] = locations
+        #     print('\n' * 5, results_per_image.get_fields()['locations'])
+        #
+        #     results_per_image.get_fields()['pred_boxes'] = \
+        #         postprocess_boxes(results_per_image.get_fields()['pred_boxes'], (height, width))
         r = detector_postprocess(results_per_image, height, width)
         processed_results.append({"instances": r})
     return processed_results
 
 
-def postprocess_locations(locations: torch.Tensor, ori_sizes: iter) -> torch.Tensor:
-    pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
-    pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
-    l, t = pad_w // 2, pad_h // 2
-    r, b = pad_w - l, pad_h - t
-    locations = locations - torch.tensor((b, l))
-
-    return locations
-
-
-def postprocess_boxes(boxes: object, ori_sizes: iter) -> torch.Tensor:
-    pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
-    pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
-    l, t = pad_w // 2, pad_h // 2
-    r, b = pad_w - l, pad_h - t
-    boxes.tensor = boxes.tensor - torch.tensor((b, l, b, l))
-
-    return boxes
-
-
-def postprocess_bboxes(bboxes, image_size):
-    org_w = image_size[0]
-    org_h = image_size[1]
-
-    scale = 800 / min(org_w, org_h)
-    new_w = int(np.floor(org_w * scale))
-    new_h = int(np.floor(org_h * scale))
-    if max(new_h, new_w) > 1333:
-        scale = 1333 / max(new_h, new_w) * scale
-
-    bboxes[:, 0] = (bboxes[:, 0]) / scale
-    bboxes[:, 1] = (bboxes[:, 1]) / scale
-    bboxes[:, 2] = (bboxes[:, 2]) / scale
-    bboxes[:, 3] = (bboxes[:, 3]) / scale
-
-    return bboxes
-
-
-def postprocess_masks(masks, image_size, net_input_width, net_input_height):
-    org_w = image_size[0]
-    org_h = image_size[1]
-
-    scale = 800 / min(org_w, org_h)
-    new_w = int(np.floor(org_w * scale))
-    new_h = int(np.floor(org_h * scale))
-    if max(new_h, new_w) > 1333:
-        scale = 1333 / max(new_h, new_w) * scale
-
-    pad_w = net_input_width - org_w * scale
-    pad_h = net_input_height - org_h * scale
-    top = 0
-    left = 0
-    hs = int(net_input_height - pad_h)
-    ws = int(net_input_width - pad_w)
-
-    masks = masks.to(dtype=torch.float32)
-    res_append = torch.zeros(0, org_h, org_w)
-    if torch.cuda.is_available():
-        res_append = res_append.to(device='cuda')
-    for i in range(masks.size(0)):
-        mask = masks[i][0][top:hs, left:ws]
-        mask = mask.expand((1, 1, mask.size(0), mask.size(1)))
-        mask = F.interpolate(mask, size=(int(org_h), int(org_w)), mode='bilinear', align_corners=False)
-        mask = mask[0][0]
-        mask = mask.unsqueeze(0)
-        res_append = torch.cat((res_append, mask))
-
-    return res_append[:, None]
+# def postprocess_locations(locations: torch.Tensor, ori_sizes: iter) -> torch.Tensor:
+#     pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
+#     pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
+#     l, t = pad_w // 2, pad_h // 2
+#     r, b = pad_w - l, pad_h - t
+#     locations = locations - torch.tensor((b, l))
+#
+#     return locations
+#
+#
+# def postprocess_boxes(boxes: object, ori_sizes: iter) -> torch.Tensor:
+#     pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
+#     pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
+#     l, t = pad_w // 2, pad_h // 2
+#     r, b = pad_w - l, pad_h - t
+#     boxes.tensor = boxes.tensor - torch.tensor((b, l, b, l))
+#
+#     return boxes
+#
+#
+# def postprocess_bboxes(bboxes, image_size):
+#     org_w = image_size[0]
+#     org_h = image_size[1]
+#
+#     scale = 800 / min(org_w, org_h)
+#     new_w = int(np.floor(org_w * scale))
+#     new_h = int(np.floor(org_h * scale))
+#     if max(new_h, new_w) > 1333:
+#         scale = 1333 / max(new_h, new_w) * scale
+#
+#     bboxes[:, 0] = (bboxes[:, 0]) / scale
+#     bboxes[:, 1] = (bboxes[:, 1]) / scale
+#     bboxes[:, 2] = (bboxes[:, 2]) / scale
+#     bboxes[:, 3] = (bboxes[:, 3]) / scale
+#
+#     return bboxes
+#
+#
+# def postprocess_masks(masks, image_size, net_input_width, net_input_height):
+#     org_w = image_size[0]
+#     org_h = image_size[1]
+#
+#     scale = 800 / min(org_w, org_h)
+#     new_w = int(np.floor(org_w * scale))
+#     new_h = int(np.floor(org_h * scale))
+#     if max(new_h, new_w) > 1333:
+#         scale = 1333 / max(new_h, new_w) * scale
+#
+#     pad_w = net_input_width - org_w * scale
+#     pad_h = net_input_height - org_h * scale
+#     top = 0
+#     left = 0
+#     hs = int(net_input_height - pad_h)
+#     ws = int(net_input_width - pad_w)
+#
+#     masks = masks.to(dtype=torch.float32)
+#     res_append = torch.zeros(0, org_h, org_w)
+#     if torch.cuda.is_available():
+#         res_append = res_append.to(device='cuda')
+#     for i in range(masks.size(0)):
+#         mask = masks[i][0][top:hs, left:ws]
+#         mask = mask.expand((1, 1, mask.size(0), mask.size(1)))
+#         mask = F.interpolate(mask, size=(int(org_h), int(org_w)), mode='bilinear', align_corners=False)
+#         mask = mask[0][0]
+#         mask = mask.unsqueeze(0)
+#         res_append = torch.cat((res_append, mask))
+#
+#     return res_append[:, None]
 
 

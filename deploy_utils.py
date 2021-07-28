@@ -136,20 +136,39 @@ def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padd
     processed_results = []
     for results_per_image in instances:
         if padded:
-            results_per_image['locations'] = postprocess_locations(results_per_image['locations'], (height, width))
+            locations = results_per_image.get_fields()['locations']
+            print('\n' * 5, results_per_image.get_fields()['pred_boxes'])
+            print('\n' * 5, results_per_image.get_fields()['pred_masks'].shape)
+            locations = postprocess_locations(results_per_image.get_fields()['locations'], (height, width))
+
+            results_per_image.get_fields()['locations'] = locations
+            print('\n' * 5, results_per_image.get_fields()['locations'])
+
+            results_per_image.get_fields()['pred_boxes'] = \
+                postprocess_boxes(results_per_image.get_fields()['pred_boxes'], (height, width))
         r = detector_postprocess(results_per_image, height, width)
         processed_results.append({"instances": r})
     return processed_results
 
 
 def postprocess_locations(locations: torch.Tensor, ori_sizes: iter) -> torch.Tensor:
-    pad_h = FIXED_EDGE_SIZE - ori_sizes[1]
-    pad_w = FIXED_EDGE_SIZE - ori_sizes[2]
+    pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
+    pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
     l, t = pad_w // 2, pad_h // 2
     r, b = pad_w - l, pad_h - t
     locations = locations - torch.tensor((b, l))
 
     return locations
+
+
+def postprocess_boxes(boxes: object, ori_sizes: iter) -> torch.Tensor:
+    pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
+    pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
+    l, t = pad_w // 2, pad_h // 2
+    r, b = pad_w - l, pad_h - t
+    boxes.tensor = boxes.tensor - torch.tensor((b, l, b, l))
+
+    return boxes
 
 
 def postprocess_bboxes(bboxes, image_size):

@@ -75,10 +75,13 @@ def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
     # Padding
     pad_h = FIXED_EDGE_SIZE - image_tensor.shape[1]
     pad_w = FIXED_EDGE_SIZE - image_tensor.shape[2]
-    l, t = pad_w // 2, pad_h // 2
-    r, b = pad_w - l, pad_h - t
-    print(f'shape:{image_tensor.shape}, padding={(l, r, t, b)}')
-    image_tensor = nn.ZeroPad2d(padding=(l, r, t, b))(image_tensor)
+
+    # padding on right and bottom
+    image_tensor = nn.ZeroPad2d(padding=(0, pad_w, 0, pad_h))(image_tensor)
+    # l, t = pad_w // 2, pad_h // 2
+    # r, b = pad_w - l, pad_h - t
+    # print(f'shape:{image_tensor.shape}, padding={(l, r, t, b)}')
+    # image_tensor = nn.ZeroPad2d(padding=(l, r, t, b))(image_tensor)
 
     return image_tensor
 

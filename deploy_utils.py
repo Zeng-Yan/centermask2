@@ -19,6 +19,21 @@ def to_numpy(tensor: torch.Tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 
+def check_keys(model: nn.Module, state_dict: dict) -> None:
+    """
+    验证模型的各种权重key和保存的state_dict是否匹配
+    """
+    keys_model = set(model.state_dict().keys())
+    keys_state = set(state_dict.keys())
+    keys_miss = keys_model - keys_state
+    keys_used = keys_model & keys_state
+    print(f'{len(keys_model)} keys of model, {len(keys_state)} keys of state_dict')
+    print(f'Count of used keys: {len(keys_used)}')
+    print(f'Count of missing keys: {len(keys_miss)}')
+    print(f'missing keys: {keys_miss}')
+    return None
+
+
 def setup_cfg(arg_parser):
     """
         Create configs and perform basic setups.
@@ -97,40 +112,44 @@ def single_flatten_to_tuple(wrapped_outputs: object):
     return tuple_outputs
 
 
-def postprocess(instances: list, height, width):
+def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padded=False):
     """
     Rescale the output instances to the target size.
+    Instances.fields:
+        需处理 locations:    [N, 2]
+        不处理 mask_scores:  [N, 1]
+        需处理 pred_boxes:   [N, 4]
+        不处理 pred_classes: [N, 1]
+        需处理 pred_masks:   [N, 1, 28, 28]
+        不处理 scores:       [N, 1]
+
     :param instances: list[Instances]
-    :param batched_inputs: list[dict[str, torch.Tensor]]
+    :param height: list[dict[str, torch.Tensor]]
+    :param width
+    :param padded
     :return:
     """
     # note: private function; subject to changes
     processed_results = []
     for results_per_image in instances:
+        if padded:
+            results_per_image['locations'] = postprocess_locations(results_per_image['locations'], (height, width))
         r = detector_postprocess(results_per_image, height, width)
         processed_results.append({"instances": r})
     return processed_results
 
 
-def check_keys(model: nn.Module, state_dict: dict) -> None:
-    """
-    验证模型的各种权重key和保存的state_dict是否匹配
-    """
-    keys_model = set(model.state_dict().keys())
-    keys_state = set(state_dict.keys())
-    keys_miss = keys_model - keys_state
-    keys_used = keys_model & keys_state
-    print(f'{len(keys_model)} keys of model, {len(keys_state)} keys of state_dict')
-    print(f'Count of used keys: {len(keys_used)}')
-    print(f'Count of missing keys: {len(keys_miss)}')
-    print(f'missing keys: {keys_miss}')
-    return None
+def postprocess_locations(locations: torch.Tensor, ori_sizes: iter) -> torch.Tensor:
+    pad_h = FIXED_EDGE_SIZE - ori_sizes[1]
+    pad_w = FIXED_EDGE_SIZE - ori_sizes[2]
+    l, t = pad_w // 2, pad_h // 2
+    r, b = pad_w - l, pad_h - t
+    locations = locations - torch.tensor((b, l))
+
+    return locations
 
 
-
-
-
-def postprocess_bboxes(bboxes, image_size, net_input_width, net_input_height):
+def postprocess_bboxes(bboxes, image_size):
     org_w = image_size[0]
     org_h = image_size[1]
 

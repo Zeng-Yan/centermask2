@@ -60,16 +60,16 @@ if __name__ == "__main__":
     DetectionCheckpointer(torch_model).load(cfg.MODEL.WEIGHTS)  # load weights
     torch_model.eval()
 
-    # # fix input compare model output
-    # with torch.no_grad():
-    #     outputs = torch_model(inputs)
-    # outputs = single_wrap_outputs(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
-    # outputs = postprocess(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
-    #
-    # # visualize outputs
-    # original_image = detection_utils.read_image(img_path, format="BGR")
-    # pred, visualized_output = run_on_image(outputs[0], original_image)
-    # visualized_output.save('visualized_outputs_mod.jpg')
+    # fix input compare model output
+    with torch.no_grad():
+        outputs = torch_model(inputs)
+    outputs = single_wrap_outputs(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'])
+    outputs = postprocess(outputs, batched_inputs[0]['height'], batched_inputs[0]['width'], True)
+
+    # visualize outputs
+    original_image = detection_utils.read_image(img_path, format="BGR")
+    pred, visualized_output = run_on_image(outputs[0], original_image)
+    visualized_output.save('visualized_outputs_mod.jpg')
 
     # fix input compare model output
     with torch.no_grad():
@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     # visualize outputs
     # o = torch.zeros((1344, 1344, 3))
-    original_image = to_numpy(inputs.squeeze(0)).transpose(1, 2, 0)[:, :, ::-1]
+    original_image = to_numpy(inputs.squeeze(0)).transpose(1, 2, 0)
     print(original_image.shape)
     pred, visualized_output = run_on_image(outputs[0], original_image)
     visualized_output.save('visualized_outputs_mod.jpg')

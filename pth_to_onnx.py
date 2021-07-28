@@ -90,7 +90,7 @@ if __name__ == "__main__":
 
     # postprocessing
     outputs = single_wrap_outputs(outputs)
-    outputs = postprocess(outputs, batched_inputs)  # [{'instances':}]
+    outputs = postprocess(outputs)  # [{'instances':}]
     outputs = single_flatten_to_tuple(outputs[0]['instances'])
     print('\n' * 5, f'shapes of post processed outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
 

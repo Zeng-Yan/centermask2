@@ -10,7 +10,7 @@ class FakeImageList(object):
         image_sizes (list[tuple[H, W]]): Each tuple is (h, w). It can be smaller than (H, W) due to padding.
         """
         if hw is None:
-            self.image_sizes = [(1333, 1333) for _ in range(tensor.shape[0])]
+            self.image_sizes = [(1344, 1344) for _ in range(tensor.shape[0])]
         else:
             self.image_sizes = hw
         self.tensor = tensor

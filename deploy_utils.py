@@ -4,8 +4,8 @@ import numpy as np
 import torch.nn.functional as F
 
 import detectron2.data.transforms as T
-from detectron2.modeling.postprocessing import detector_postprocess
-from detectron2.structures import Instances, Boxes
+# from detectron2.modeling.postprocessing import detector_postprocess
+from detectron2.structures import Instances, Boxes, ROIMasks
 from detectron2.data import build_detection_test_loader, detection_utils
 from detectron2.export import add_export_config
 from centermask.config import get_cfg
@@ -113,6 +113,50 @@ def single_flatten_to_tuple(wrapped_outputs: object):
                      field['pred_boxes'].tensor, field['pred_classes'],
                      field['pred_masks'], field['scores'])
     return tuple_outputs
+
+
+def detector_postprocess(
+    results: Instances, h: int, w: int, mask_threshold: float = 0.5
+):
+    """
+    Resize the output instances.
+    The input images are often resized when entering an object detector.
+    As a result, we often need the outputs of the detector in a different
+    resolution from its inputs.
+
+    This function will resize the raw outputs of an R-CNN detector
+    to produce outputs according to the desired output resolution.
+
+    Args:
+        results (Instances): the raw outputs from the detector.
+            `results.image_size` contains the input image resolution the detector sees.
+            This object might be modified in-place.
+        output_height, output_width: the desired output resolution.
+
+    Returns:
+        Instances: the resized output from the model, based on the output resolution
+    """
+    results = Instances((h, w), **results.get_fields())
+
+    scale = 800 / min(h, w)
+    new_h = int(np.floor(h * scale))
+    new_w = int(np.floor(w * scale))
+    if max(new_h, new_w) > 1333:
+        scale = 1333 / max(new_h, new_w) * scale
+
+    scale_x, scale_y = 1/scale, 1/scale
+
+    output_boxes = results.pred_boxes
+    output_boxes.scale(scale_x, scale_y)
+    output_boxes.clip(results.image_size)
+    results = results[output_boxes.nonempty()]
+
+    roi_masks = ROIMasks(results.pred_masks[:, 0, :, :])
+    results.pred_masks = roi_masks.to_bitmasks(
+        results.pred_boxes, h, w, mask_threshold
+    ).tensor
+
+    return results
 
 
 def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padded=False):

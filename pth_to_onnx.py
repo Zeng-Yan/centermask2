@@ -4,12 +4,10 @@ import argparse
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
-
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 
-from test import single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
 from modified_class import FakeImageList
-from deploy_utils import check_keys, setup_cfg, get_sample_inputs
+from deploy_utils import check_keys, setup_cfg, get_sample_inputs, single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
     # lst_of_fields = [instance.fields for instance in wrapped_outputs]
     #
     # lst_of_pred_boxes = [field['pred_boxes'].tensor for field in lst_of_fields]
@@ -35,9 +33,6 @@ class GeneralizedRCNN(RCNN):
         # print(results)
         results = single_flatten_to_tuple(results[0])
         return results
-
-
-
 
 
 if __name__ == "__main__":

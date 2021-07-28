@@ -9,8 +9,7 @@ from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 from detectron2.data import detection_utils, MetadataCatalog
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 
-from deploy_utils import setup_cfg, get_sample_inputs
-from test import single_preprocessing, postprocess, single_wrap_outputs, to_numpy
+from deploy_utils import setup_cfg, get_sample_inputs, single_preprocessing, postprocess, single_wrap_outputs, to_numpy
 from pth_to_onnx import GeneralizedRCNN
 
 

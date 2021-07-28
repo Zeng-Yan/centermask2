@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 import argparse
 import onnxruntime
 
@@ -7,11 +6,10 @@ from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 
-from test import single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
 from pth_to_onnx import GeneralizedRCNN
 from modified_class import FakeImageList
 from modified_class import GeneralizedRCNN as MRCNN
-from deploy_utils import setup_cfg, get_sample_inputs
+from deploy_utils import setup_cfg, get_sample_inputs, single_preprocessing, postprocess, single_flatten_to_tuple
 
 
 def cmp(a, b):

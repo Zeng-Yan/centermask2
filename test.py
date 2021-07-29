@@ -2,6 +2,8 @@ import torch
 import argparse
 import onnxruntime
 from collections import OrderedDict
+import sys
+sys.path.append('./centermask2')
 
 from centermask.evaluation import COCOEvaluator
 from detectron2.data import build_detection_test_loader
@@ -25,6 +27,7 @@ def inference_onnx(session, data_loader, evaluator):
         lst_output_nodes = [node.name for node in session.get_outputs()]
         input_node = [node.name for node in session.get_inputs()][0]
         outputs = session.run(lst_output_nodes, {input_node: image})
+
         outputs = single_wrap_outputs(outputs)
         outputs = postprocess(outputs, h, w)
         evaluator.process(inputs, outputs)

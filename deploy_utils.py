@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import numpy as np
-import torch.nn.functional as F
+import os
+import sys
+sys.path.append('./centermask2')
 
 import detectron2.data.transforms as T
-# from detectron2.modeling.postprocessing import detector_postprocess
 from detectron2.structures import Instances, Boxes, ROIMasks
 from detectron2.data import build_detection_test_loader, detection_utils
 from detectron2.export import add_export_config
@@ -195,73 +196,34 @@ def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padd
     return processed_results
 
 
-# def postprocess_locations(locations: torch.Tensor, ori_sizes: iter) -> torch.Tensor:
-#     pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
-#     pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
-#     l, t = pad_w // 2, pad_h // 2
-#     r, b = pad_w - l, pad_h - t
-#     locations = locations - torch.tensor((b, l))
-#
-#     return locations
-#
-#
-# def postprocess_boxes(boxes: object, ori_sizes: iter) -> torch.Tensor:
-#     pad_h = FIXED_EDGE_SIZE - ori_sizes[0]
-#     pad_w = FIXED_EDGE_SIZE - ori_sizes[1]
-#     l, t = pad_w // 2, pad_h // 2
-#     r, b = pad_w - l, pad_h - t
-#     boxes.tensor = boxes.tensor - torch.tensor((b, l, b, l))
-#
-#     return boxes
-#
-#
-# def postprocess_bboxes(bboxes, image_size):
-#     org_w = image_size[0]
-#     org_h = image_size[1]
-#
-#     scale = 800 / min(org_w, org_h)
-#     new_w = int(np.floor(org_w * scale))
-#     new_h = int(np.floor(org_h * scale))
-#     if max(new_h, new_w) > 1333:
-#         scale = 1333 / max(new_h, new_w) * scale
-#
-#     bboxes[:, 0] = (bboxes[:, 0]) / scale
-#     bboxes[:, 1] = (bboxes[:, 1]) / scale
-#     bboxes[:, 2] = (bboxes[:, 2]) / scale
-#     bboxes[:, 3] = (bboxes[:, 3]) / scale
-#
-#     return bboxes
-#
-#
-# def postprocess_masks(masks, image_size, net_input_width, net_input_height):
-#     org_w = image_size[0]
-#     org_h = image_size[1]
-#
-#     scale = 800 / min(org_w, org_h)
-#     new_w = int(np.floor(org_w * scale))
-#     new_h = int(np.floor(org_h * scale))
-#     if max(new_h, new_w) > 1333:
-#         scale = 1333 / max(new_h, new_w) * scale
-#
-#     pad_w = net_input_width - org_w * scale
-#     pad_h = net_input_height - org_h * scale
-#     top = 0
-#     left = 0
-#     hs = int(net_input_height - pad_h)
-#     ws = int(net_input_width - pad_w)
-#
-#     masks = masks.to(dtype=torch.float32)
-#     res_append = torch.zeros(0, org_h, org_w)
-#     if torch.cuda.is_available():
-#         res_append = res_append.to(device='cuda')
-#     for i in range(masks.size(0)):
-#         mask = masks[i][0][top:hs, left:ws]
-#         mask = mask.expand((1, 1, mask.size(0), mask.size(1)))
-#         mask = F.interpolate(mask, size=(int(org_h), int(org_w)), mode='bilinear', align_corners=False)
-#         mask = mask[0][0]
-#         mask = mask.unsqueeze(0)
-#         res_append = torch.cat((res_append, mask))
-#
-#     return res_append[:, None]
+def inference_onnx(session, data_loader, evaluator):
+    evaluator.reset()
+    for idx, inputs in enumerate(data_loader):
+        print(inputs[0]['file_name'])
+        image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
+        # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
+        image = single_preprocessing(image).to(torch.float32)
+        image = to_numpy(image.unsqueeze(0))
+        lst_output_nodes = [node.name for node in session.get_outputs()]
+        input_node = [node.name for node in session.get_inputs()][0]
+        outputs = session.run(lst_output_nodes, {input_node: image})
 
+        outputs = single_wrap_outputs(outputs)
+        outputs = postprocess(outputs, h, w)
+        evaluator.process(inputs, outputs)
+    return evaluator.evaluate()
+
+
+def to_bin(data_loader, save_path: str) -> None:
+    # current_dir = os.path.dirname(__file__)
+    # save_path = current_dir + save_path
+    if not os.path.exists(save_path):
+        os.mkdir(save_path)
+
+    for idx, inputs in enumerate(data_loader):
+        print(inputs[0]['file_name'])
+        image, image_name = inputs[0]['image'], inputs[0]['file_name']
+        image = single_preprocessing(image).to(torch.float32)
+        image = to_numpy(image.unsqueeze(0))
+        image.tofile(f'{save_path}/{image_name}.bin')  # save image to bin file
 

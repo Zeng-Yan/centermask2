@@ -10,7 +10,9 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 
 from modified_class import FakeImageList
-from deploy_utils import check_keys, setup_cfg, get_sample_inputs, single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
+from deploy_utils import (check_keys, setup_cfg, get_sample_inputs, single_preprocessing,
+                          single_wrap_outputs, postprocess, single_flatten_to_tuple
+)
 
 
 class GeneralizedRCNN(RCNN):

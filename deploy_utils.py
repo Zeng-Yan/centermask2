@@ -1,4 +1,5 @@
 import torch
+from torch.utils.data import DataLoader
 import torch.nn as nn
 import numpy as np
 import os
@@ -17,6 +18,9 @@ FIXED_EDGE_SIZE = 1344
 
 
 def to_numpy(tensor: torch.Tensor) -> np.array:
+    """
+    convert tensor to array
+    """
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 
@@ -37,7 +41,7 @@ def check_keys(model: nn.Module, state_dict: dict) -> None:
 
 def setup_cfg(arg_parser):
     """
-        Create configs and perform basic setups.
+    Create configs and perform basic setups.
     """
     config = get_cfg()
     # cuda context is initialized before creating dataloader, so we don't fork anymore
@@ -51,7 +55,8 @@ def setup_cfg(arg_parser):
 
 def get_sample_inputs(path: str) -> list:
     """
-    从路径读取一张图片，并按最短边缩放到800，且最长边不超过1333，输出为[{"image": tensor, "height": tensor, "width": tensor}]
+    从路径读取一张图片，并按最短边缩放到800，且最长边不超过1333
+    :return: [{"image": tensor, "height": tensor, "width": tensor}]
     """
     # load image from path
     original_image = detection_utils.read_image(path, format="BGR")
@@ -66,7 +71,7 @@ def get_sample_inputs(path: str) -> list:
 
 def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
     """
-        Normalize and pad the input images.
+    Normalize and pad the input images.
     """
     # Normalize
     pixel_mean = torch.tensor([103.53, 116.28, 123.675]).view(-1, 1, 1)
@@ -105,11 +110,10 @@ def single_wrap_outputs(tuple_outputs: tuple, height=MAX_EDGE_SIZE, width=MAX_ED
     return [instances]
 
 
-def single_flatten_to_tuple(wrapped_outputs: object):
+def single_flatten_to_tuple(wrapped_outputs: object) -> tuple:
     """
     模型输出被[Instances.fields]的形式封装，将不同的输出拆解出来组成元组
-    :param wrapped_outputs:
-    :return:
+    :return: (locations, mask_scores, pred_boxes, pred_classes, pred_masks, scores)
     """
     field = wrapped_outputs.get_fields()
     tuple_outputs = (field['locations'], field['mask_scores'],
@@ -120,24 +124,10 @@ def single_flatten_to_tuple(wrapped_outputs: object):
 
 def detector_postprocess(
     results: Instances, h: int, w: int, mask_threshold: float = 0.5
-):
+) -> Instances:
     """
-    Resize the output instances.
-    The input images are often resized when entering an object detector.
-    As a result, we often need the outputs of the detector in a different
-    resolution from its inputs.
-
     This function will resize the raw outputs of an R-CNN detector
     to produce outputs according to the desired output resolution.
-
-    Args:
-        results (Instances): the raw outputs from the detector.
-            `results.image_size` contains the input image resolution the detector sees.
-            This object might be modified in-place.
-        output_height, output_width: the desired output resolution.
-
-    Returns:
-        Instances: the resized output from the model, based on the output resolution
     """
     results = Instances((h, w), **results.get_fields())
 
@@ -149,11 +139,13 @@ def detector_postprocess(
 
     scale_x, scale_y = 1/scale, 1/scale
 
+    # Rescale pred_boxes
     output_boxes = results.pred_boxes
     output_boxes.scale(scale_x, scale_y)
     output_boxes.clip(results.image_size)
     results = results[output_boxes.nonempty()]
 
+    # Rescale pred_masks
     roi_masks = ROIMasks(results.pred_masks[:, 0, :, :])
     results.pred_masks = roi_masks.to_bitmasks(
         results.pred_boxes, h, w, mask_threshold
@@ -162,22 +154,14 @@ def detector_postprocess(
     return results
 
 
-def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padded=False):
+def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE) -> list:
     """
     Rescale the output instances to the target size.
-    Instances.fields:
-        需处理 locations:    [N, 2]
-        不处理 mask_scores:  [N, 1]
-        需处理 pred_boxes:   [N, 4]
-        不处理 pred_classes: [N, 1]
-        需处理 pred_masks:   [N, 1, 28, 28]
-        不处理 scores:       [N, 1]
 
     :param instances: list[Instances]
-    :param height: list[dict[str, torch.Tensor]]
-    :param width
-    :param padded
-    :return:
+    :param height: int
+    :param width: int
+    :return: [{"instances": Instances}]
     """
     # note: private function; subject to changes
     processed_results = []
@@ -187,24 +171,10 @@ def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padd
     return processed_results
 
 
-def inference_onnx(session, data_loader, evaluator):
-    evaluator.reset()
-    for idx, inputs in enumerate(data_loader):
-        print(inputs[0]['file_name'])
-        image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
-        image = single_preprocessing(image).to(torch.float32)
-        image = to_numpy(image.unsqueeze(0))
-        lst_output_nodes = [node.name for node in session.get_outputs()]
-        input_node = [node.name for node in session.get_inputs()][0]
-        outputs = session.run(lst_output_nodes, {input_node: image})
-
-        outputs = single_wrap_outputs(outputs)
-        outputs = postprocess(outputs, h, w)
-        evaluator.process(inputs, outputs)
-    return evaluator.evaluate()
-
-
-def to_bin(data_loader, save_path: str) -> None:
+def to_bin(data_loader: DataLoader, save_path: str) -> None:
+    """
+    convert tensors in data_loader to .bin files saving in save_path
+    """
     current_dir = os.path.dirname(__file__)
     save_path = current_dir + '/' + save_path + '/'
     if not os.path.exists(save_path):

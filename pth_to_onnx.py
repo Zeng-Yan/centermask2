@@ -1,5 +1,8 @@
+import os
 import torch
 import argparse
+import sys
+sys.path.append('./centermask2')
 
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 from detectron2.modeling import build_model
@@ -8,14 +11,6 @@ from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 
 from modified_class import FakeImageList
 from deploy_utils import check_keys, setup_cfg, get_sample_inputs, single_wrap_outputs, single_preprocessing, postprocess, single_flatten_to_tuple
-    # lst_of_fields = [instance.fields for instance in wrapped_outputs]
-    #
-    # lst_of_pred_boxes = [field['pred_boxes'].tensor for field in lst_of_fields]
-    # lst_of_scores = [field['scores'] for field in lst_of_fields]
-    # lst_of_pred_classes = [field['pred_classes'] for field in lst_of_fields]
-    # lst_of_locations = [field['locations'] for field in lst_of_fields]
-    # lst_of_pred_masks = [field['pred_masks'] for field in lst_of_fields]
-    # lst_of_mask_scores = [field['mask_scores'] for field in lst_of_fields]
 
 
 class GeneralizedRCNN(RCNN):
@@ -27,10 +22,8 @@ class GeneralizedRCNN(RCNN):
 
         features = self.backbone(img_tensors)
         images = FakeImageList(img_tensors)
-        proposals, _ = self.proposal_generator(images, features, None)
-        # proposals: Instance.fields(pred_boxes, scores, pred_classes, locations)
+        proposals, _ = self.proposal_generator(images, features, None)  # Instance[pred_boxes, scores, pred_classes, locations]
         results, _ = self.roi_heads(images, features, proposals, None)
-        # print(results)
         results = single_flatten_to_tuple(results[0])
         return results
 
@@ -38,7 +31,7 @@ class GeneralizedRCNN(RCNN):
 if __name__ == "__main__":
     '''
     run this file like:
-    python pth_to_onnx.py --config-file "configs/centermask/zy_model_config.yaml" --pic-file "000000000139.jpg" /
+    python pth_to_onnx.py --config-file "configs/centermask/zy_model_config.yaml"  \
     --onnx MODEL.WEIGHTS "/export/home/zy/centermask2/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # modified forward function of model
@@ -52,7 +45,6 @@ if __name__ == "__main__":
     parser.add_argument("--pic-file", default="", metavar="FILE", help="path to pic file")
     parser.add_argument("--onnx", action="store_true")
     parser.add_argument("--v", action="store_true")
-    # parser.add_argument("--run-eval", action="store_true")
     parser.add_argument(
         "opts",
         help="Modify config options using the command-line",
@@ -62,26 +54,24 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cfg = setup_cfg(args)
-    # print(cfg.MODEL.PIXEL_MEAN, cfg.MODEL.PIXEL_STD)
-    print(cfg.MODEL.META_ARCHITECTURE, cfg.MODEL.ROI_HEADS.NAME, cfg.MODEL.PROPOSAL_GENERATOR.NAME)
+    print(cfg.MODEL.META_ARCHITECTURE, cfg.MODEL.PROPOSAL_GENERATOR.NAME, cfg.MODEL.ROI_HEADS.NAME)
     print('\n' * 5)
+
+    # get inputs
+    if args.pic_file:
+        img_path = args.pic_file
+    else:
+        img_path = os.environ['DETECTRON2_DATASETS'] + '/coco/val2017/000000000139.jpg'
+    batched_inputs = get_sample_inputs(img_path)  # read and resize
+    inputs = single_preprocessing(batched_inputs[0]['image']).unsqueeze(0)  # preprocessing
 
     # build torch model
     model = build_model(cfg)
-    # path_pth = 'centermask2-V-39-eSE-FPN-ms-3x.pth'
     path_pth = cfg.MODEL.WEIGHTS
-    check_keys(model, torch.load(path_pth)['model'])  # compare keys
+    # check_keys(model, torch.load(path_pth)['model'])  # compare keys
     DetectionCheckpointer(model).load(path_pth)  # load weights
     model.eval()
     # print(model)
-
-    # get a batch from given pic
-    img_path = args.pic_file
-    batched_inputs = get_sample_inputs(img_path)
-
-    # preprocessing
-    inputs = single_preprocessing(batched_inputs[0]['image'])
-    inputs = inputs.unsqueeze(0)
 
     # forward
     with torch.no_grad():

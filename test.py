@@ -21,13 +21,11 @@ def inference_onnx(session, data_loader, evaluator):
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
         image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
-        # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
         image = single_preprocessing(image).to(torch.float32)
         image = to_numpy(image.unsqueeze(0))
         lst_output_nodes = [node.name for node in session.get_outputs()]
         input_node = [node.name for node in session.get_inputs()][0]
         outputs = session.run(lst_output_nodes, {input_node: image})
-
         outputs = single_wrap_outputs(outputs)
         outputs = postprocess(outputs, h, w)
         evaluator.process(inputs, outputs)
@@ -39,17 +37,11 @@ def inference_fixed(model, data_loader, evaluator):
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
         image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
-        # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
         image = single_preprocessing(image).to(torch.float32).unsqueeze(0)
         img_lst = FakeImageList(image, [(inputs[0]['height'], inputs[0]['width'])])
         with torch.no_grad():
             outputs = model.inference(img_lst, do_preprocess=False, do_postprocess=False)
         outputs = postprocess(outputs, h, w)
-        # outputs = single_flatten_to_tuple(outputs[0])
-        # outputs = (x.detach() for x in outputs)
-        # outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
-        # outputs = model._postprocess(outputs, inputs, img_lst.image_sizes)
-
         evaluator.process(inputs, outputs)
     return evaluator.evaluate()
 
@@ -60,10 +52,6 @@ def inference_origin(model, data_loader, evaluator):
         print(inputs[0]['file_name'])
         with torch.no_grad():
             outputs = model(inputs)
-        # outputs = single_flatten_to_tuple(outputs[0]['instances'])
-        # outputs = (x.detach() for x in outputs)
-        # outputs = single_wrap_outputs(outputs, inputs[0]['height'], inputs[0]['width'])
-        # outputs = [{'instances': outputs[0]}]
         evaluator.process(inputs, outputs)
     return evaluator.evaluate()
 

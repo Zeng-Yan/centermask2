@@ -93,7 +93,6 @@ class MaskIoUHead(nn.Module):
         self.maskiou = Linear(1024, num_classes)
         self.pooling = MaxPool2d(kernel_size=2, stride=2)
 
-
         for l in self.conv_relus:
             nn.init.kaiming_normal_(l.weight, mode="fan_out", nonlinearity="relu")
             nn.init.constant_(l.bias, 0)

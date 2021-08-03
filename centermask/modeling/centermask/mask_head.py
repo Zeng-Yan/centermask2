@@ -205,12 +205,8 @@ def mask_rcnn_inference(pred_mask_logits, pred_instances):
         if torch.onnx.is_in_onnx_export():
             indices = indices[:class_pred.shape[0]]
             class_pred = class_pred[:indices.shape[0]]
-        # print('\n'*40, indices, '\n'*2, class_pred, '\n'*40)
         mask_probs_pred = pred_mask_logits[indices, class_pred][:, None].sigmoid()
-        # mask_probs_pred = mask_probs_pred
-        # mask_probs_pred = mask_probs_pred
 
-        # mask_probs_pred = mask_probs_pred
     # mask_probs_pred.shape: (B, 1, Hmask, Wmask)
 
     num_boxes_per_image = [i.pred_classes.shape[0] for i in pred_instances]

@@ -15,6 +15,7 @@ if __name__ == '__main__':
     # set cfg
     parser = argparse.ArgumentParser(description="Convert a model using tracing.")
     parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file")
+    parser.add_argument("opts", help="Modify config options using the command-line", default=None, nargs=argparse.REMAINDER,)
     args = parser.parse_args()
     cfg = setup_cfg(args)
 

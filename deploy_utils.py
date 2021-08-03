@@ -79,6 +79,8 @@ def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
 
     # padding on right and bottom
     image_tensor = nn.ZeroPad2d(padding=(0, pad_w, 0, pad_h))(image_tensor)
+
+    # padding around
     # l, t = pad_w // 2, pad_h // 2
     # r, b = pad_w - l, pad_h - t
     # print(f'shape:{image_tensor.shape}, padding={(l, r, t, b)}')
@@ -180,17 +182,6 @@ def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE, padd
     # note: private function; subject to changes
     processed_results = []
     for results_per_image in instances:
-        # if padded:
-        #     locations = results_per_image.get_fields()['locations']
-        #     print('\n' * 5, results_per_image.get_fields()['pred_boxes'])
-        #     print('\n' * 5, results_per_image.get_fields()['pred_masks'].shape)
-        #     locations = postprocess_locations(results_per_image.get_fields()['locations'], (height, width))
-        #
-        #     results_per_image.get_fields()['locations'] = locations
-        #     print('\n' * 5, results_per_image.get_fields()['locations'])
-        #
-        #     results_per_image.get_fields()['pred_boxes'] = \
-        #         postprocess_boxes(results_per_image.get_fields()['pred_boxes'], (height, width))
         r = detector_postprocess(results_per_image, height, width)
         processed_results.append({"instances": r})
     return processed_results
@@ -201,7 +192,6 @@ def inference_onnx(session, data_loader, evaluator):
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
         image, h, w = inputs[0]['image'], inputs[0]['height'], inputs[0]['width']
-        # print('\n' * 5, h, w, inputs.shape, '\n' * 5)
         image = single_preprocessing(image).to(torch.float32)
         image = to_numpy(image.unsqueeze(0))
         lst_output_nodes = [node.name for node in session.get_outputs()]
@@ -215,15 +205,16 @@ def inference_onnx(session, data_loader, evaluator):
 
 
 def to_bin(data_loader, save_path: str) -> None:
-    # current_dir = os.path.dirname(__file__)
-    # save_path = current_dir + save_path
+    current_dir = os.path.dirname(__file__)
+    save_path = current_dir + '/' + save_path + '/'
     if not os.path.exists(save_path):
         os.mkdir(save_path)
 
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
         image, image_name = inputs[0]['image'], inputs[0]['file_name']
+        image_name = image_name.split('/')[-1].replace('.jpg', '')
         image = single_preprocessing(image).to(torch.float32)
         image = to_numpy(image.unsqueeze(0))
-        image.tofile(f'{save_path}/{image_name}.bin')  # save image to bin file
+        image.tofile(f'{save_path}{image_name}.bin')  # save image to bin file
 

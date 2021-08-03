@@ -441,7 +441,8 @@ class FCOSOutputs(object):
         for i in range(num_images):
             # multiclass nms
             result = ml_nms(boxlists[i], self.nms_thresh)
-            number_of_detections = len(result)
+            # number_of_detections = len(result)
+            number_of_detections = result.scores.shape[0]
 
             # Limit to max_per_image detections **over all classes**
             if number_of_detections > self.fpn_post_nms_top_n > 0:

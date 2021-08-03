@@ -133,6 +133,30 @@ def convert_boxes_to_pooler_format(box_lists):
     return pooler_fmt_boxes
 
 
+class RoiExtractor(torch.autograd.Function):
+    @staticmethod
+    def forward(self, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=7, pooled_width=7,
+                         pool_mode='avg', roi_scale_factor=0, sample_num=0, spatial_scale=[0.125, 0.0625, 0.03125]):
+        """
+        feats (torch.Tensor): feats in shape (batch, 256, H, W).
+        rois (torch.Tensor): rois in shape (k, 5).
+        return:
+            roi_feats (torch.Tensor): (k, 256, pooled_width, pooled_width)
+        """
+
+        # phony implementation for shape inference
+        k = rois.size()[0]
+        roi_feats = torch.rand((k, 256, 14, 14)) * 5 - 5
+        return roi_feats
+
+    @staticmethod
+    def symbolic(g, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=14, pooled_width=14):
+        # TODO: support tensor list type for feats
+        roi_feats = g.op('RoiExtractor', f0, f1, f2, rois, aligned_i=0, finest_scale_i=56, pooled_height_i=pooled_height, pooled_width_i=pooled_width,
+                         pool_mode_s='avg', roi_scale_factor_i=0, sample_num_i=0, spatial_scale_f=[0.125, 0.0625, 0.03125], outputs=1)
+        return roi_feats
+
+
 class ROIPooler(nn.Module):
     """
     Region of interest feature map pooler that supports pooling from one or more
@@ -250,6 +274,13 @@ class ROIPooler(nn.Module):
             box_lists = [x.proposal_boxes for x in instances]
         else:
             box_lists = [x.pred_boxes for x in instances]
+
+        if torch.onnx.is_in_onnx_export():
+            output_size = self.output_size[0]
+            pooler_fmt_boxes = convert_boxes_to_pooler_format(box_lists)
+            pooler_fmt_boxes = pooler_fmt_boxes[:, 1::]
+            roi_feats = RoiExtractor.apply(x[0], x[1], x[2], pooler_fmt_boxes, 1, 56, output_size, output_size)
+            return roi_feats
 
         num_level_assignments = len(self.level_poolers)
 

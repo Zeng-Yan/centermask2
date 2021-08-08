@@ -1,6 +1,7 @@
+import torch
+
 from detectron2.layers import batched_nms
 from detectron2.structures import Instances, Boxes
-import torch
 
 
 class BatchNMSOp(torch.autograd.Function):
@@ -19,8 +20,12 @@ class BatchNMSOp(torch.autograd.Function):
         # Phony implementation for onnx export
         nmsed_boxes = bboxes[:, :max_total_size, 0, :]
         nmsed_scores = scores[:, :max_total_size, 0]
-        nmsed_classes = torch.ones(max_total_size, dtype=torch.long)
-        nmsed_num = torch.Tensor([max_total_size])
+
+        nmsed_classes = torch.ones(nmsed_scores.shape[1], dtype=torch.long)
+        nmsed_num = torch.Tensor([nmsed_scores.shape[1]])
+
+        # nmsed_classes = torch.ones(max_total_size, dtype=torch.long)
+        # nmsed_num = torch.Tensor([max_total_size])
 
         return nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_num
 
@@ -47,12 +52,16 @@ def batch_nms_op(bboxes, scores, score_threshold, iou_threshold, max_size_per_cl
 
     nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_num = BatchNMSOp.apply(bboxes, scores,
         score_threshold, iou_threshold, max_size_per_class, max_total_size)
-    nmsed_boxes = nmsed_boxes.float()
-    nmsed_scores = nmsed_scores.float()
-    nmsed_classes = nmsed_classes.long()
-    dets = torch.cat((nmsed_boxes.reshape((max_total_size, 4)), nmsed_scores.reshape((max_total_size, 1))), -1)
-    labels = nmsed_classes.reshape((max_total_size, ))
-    return dets, labels
+
+    # print('\n' * 5, nmsed_boxes.shape, nmsed_scores.shape, nmsed_classes.shape)
+
+    fst_size = nmsed_boxes.shape[1]
+    nmsed_boxes = nmsed_boxes.float().reshape((fst_size, 4))
+    nmsed_scores = nmsed_scores.float().reshape((fst_size,))
+    nmsed_classes = nmsed_classes.long().reshape((fst_size, ))
+
+    # print('\n', nmsed_boxes.shape, nmsed_scores.shape, nmsed_classes.shape, '\n' * 5)
+    return nmsed_boxes, nmsed_scores, nmsed_classes
 
 
 def ml_nms(boxlist, nms_thresh, max_proposals=-1,
@@ -73,11 +82,12 @@ def ml_nms(boxlist, nms_thresh, max_proposals=-1,
     scores = boxlist.scores
     labels = boxlist.pred_classes
 
+    print('\n', boxes.shape, '\n' * 5)
     if torch.onnx.is_in_onnx_export():
-        dets, labels = batch_nms_op(boxes, scores, 0, nms_thresh, 100, 100)  # 第三个参数如何确定
+        boxes, scores, labels = batch_nms_op(boxes, scores, 0, nms_thresh, 100, 100)  # 第三个参数如何确定
         result = Instances(boxlist.image_size)
-        result.pred_boxes = Boxes(dets[:, :4])
-        result.scores = dets.permute(1, 0)[4, :]
+        result.pred_boxes = Boxes(boxes)
+        result.scores = scores
         result.pred_classes = labels
         result.locations = boxlist.locations[:labels.shape[0]]
         return result

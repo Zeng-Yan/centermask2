@@ -82,8 +82,8 @@ def ml_nms(boxlist, nms_thresh, max_proposals=-1,
     scores = boxlist.scores
     labels = boxlist.pred_classes
 
-    print('\n', boxes.shape, '\n' * 5)
-    if torch.onnx.is_in_onnx_export():
+    # print('\n', boxes.shape, '\n' * 5)
+    if torch.onnx.is_in_onnx_export():  # 导出onnx时替换自定义算子
         boxes, scores, labels = batch_nms_op(boxes, scores, 0, nms_thresh, 100, 100)  # 第三个参数如何确定
         result = Instances(boxlist.image_size)
         result.pred_boxes = Boxes(boxes)

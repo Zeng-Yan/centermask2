@@ -1,6 +1,6 @@
 import torch
 import argparse
-import onnxruntime
+from onnxruntime import InferenceSession
 from collections import OrderedDict
 import sys
 sys.path.append('./centermask2')
@@ -78,8 +78,8 @@ def test(launcher, config, typ):
 if __name__ == '__main__':
     '''
     run this file like:
-    python test.py --config-file "configs/centermask/zy_model_config.yaml" \
-     --type pth MODEL.WEIGHTS "/export/home/zy/centermask2/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
+    python test.py --config-file "centermask2/configs/centermask/zy_model_config.yaml" \
+     --type onnx MODEL.WEIGHTS "/home/zeng/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # set cfg
     parser = argparse.ArgumentParser(description="Convert a model using tracing.")
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     # build onnx model
     if args.type == 'onnx':
         onnx_path = 'centermask2.onnx'
-        onnx_session = onnxruntime.InferenceSession(onnx_path)
+        onnx_session = InferenceSession(onnx_path)
         lch = onnx_session
     elif args.type == 'fixed':
         META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry

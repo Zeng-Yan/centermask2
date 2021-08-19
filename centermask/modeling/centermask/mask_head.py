@@ -202,7 +202,7 @@ def mask_rcnn_inference(pred_mask_logits, pred_instances):
         num_masks = pred_mask_logits.shape[0]
         class_pred = cat([i.pred_classes for i in pred_instances])
         indices = torch.arange(num_masks, device=class_pred.device)
-        if torch.onnx.is_in_onnx_export():
+        if torch.onnx.is_in_onnx_export():  # 导出onnx时裁剪形状
             indices = indices[:class_pred.shape[0]]
             class_pred = class_pred[:indices.shape[0]]
         mask_probs_pred = pred_mask_logits[indices, class_pred][:, None].sigmoid()

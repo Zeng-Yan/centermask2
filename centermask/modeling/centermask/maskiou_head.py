@@ -51,7 +51,7 @@ def mask_iou_inference(pred_instances, pred_maskiou):
     labels = cat([i.pred_classes for i in pred_instances])
     num_masks = pred_maskiou.shape[0]
     index = torch.arange(num_masks, device=labels.device)
-    if torch.onnx.is_in_onnx_export():
+    if torch.onnx.is_in_onnx_export():  # 导出onnx时裁剪形状
         labels = labels[:index.shape[0]]
         index = index[:labels.shape[0]]
     num_boxes_per_image = [i.pred_classes.shape[0] for i in pred_instances]
@@ -106,7 +106,7 @@ class MaskIoUHead(nn.Module):
 
     def forward(self, x, mask):
         mask_pool = self.pooling(mask)
-        if torch.onnx.is_in_onnx_export():
+        if torch.onnx.is_in_onnx_export():  # 导出onnx时裁剪形状
             x = x[:mask_pool.shape[0]]
             mask_pool = mask_pool[:x.shape[0]]
         x = torch.cat((x, mask_pool), 1)

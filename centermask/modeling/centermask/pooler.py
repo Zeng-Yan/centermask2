@@ -11,6 +11,63 @@ from detectron2.modeling.poolers import (
         convert_boxes_to_pooler_format, assign_boxes_to_levels
 )
 
+
+def nonzero(**kwargs) -> torch.tensor:
+    """
+    由于华为方不支持nozero算子，该函数用topk规避nonzero
+    """
+    if not torch.onnx.is_in_onnx_export():  # 在线推理时正常执行nonzero算子
+        if kwargs.get('nms_top', None):
+            kwargs.pop(key='nms_top')
+        idx = torch.nonzero(**kwargs)
+    else:  # 导出onnx时执行的分支
+        x = kwargs['input'].to(torch.int64)  # bool/? -> int64 统一数据类型避免奇怪的错误
+        k = torch.sum(x).to(torch.float)  # 设置k值
+        if x.ndim == 1:
+            k = torch.min(torch.tensor(x.shape[0]).to(torch.float), k)  # 一维情况下避免索引越界，op 11 要求min为float
+            k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
+            _, idx = x.topk(k.item())
+            idx = idx.unsqueeze(-1)  # [M, 1] 改变形状对应nonzero的输出
+        else:  # 输入为二维情况下的执行分支
+            fixed_dim = torch.tensor(x.shape[1], dtype=torch.int64)  # [80] 记录固定的列数，以便还原二维索引
+            x = x.flatten()  # [N, 80] -> [N*80]
+            nms_top = kwargs['nms_top']  # nms_top仅在二维情况下生效
+            k = torch.min(nms_top.to(torch.float), k)  # op 11 要求min为float
+            k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
+            _, col_idx = x.topk(k.item())  # 将二维tensor展平后用topk规避
+            col_idx = col_idx.to(torch.int64)  # 增加cast便于onnx修改算子
+            row_idx = (col_idx / fixed_dim).floor().to(torch.int64)  # topk在原二维tensor对应的行索引
+            col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
+            idx = torch.stack((row_idx, col_idx), dim=-1)  # [k, 2] 合并为[[行索引, 列索引], ...]的形式
+        idx = idx[0:k[0]]  # 一个无意义的操作来保留onnx中k的计算
+
+    return idx.to(torch.int64)
+
+
+class RoiExtractor(torch.autograd.Function):
+    @staticmethod
+    def forward(self, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=7, pooled_width=7,
+                         pool_mode='avg', roi_scale_factor=0, sample_num=0, spatial_scale=[0.125, 0.0625, 0.03125]):
+        """
+        feats (torch.Tensor): feats in shape (batch, 256, H, W).
+        rois (torch.Tensor): rois in shape (k, 5).
+        return:
+            roi_feats (torch.Tensor): (k, 256, pooled_width, pooled_width)
+        """
+
+        # phony implementation for shape inference
+        k = rois.size()[0]
+        roi_feats = torch.rand((k, 256, 14, 14)) * 5 - 5
+        return roi_feats
+
+    @staticmethod
+    def symbolic(g, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=14, pooled_width=14):
+        # TODO: support tensor list type for feats
+        roi_feats = g.op('RoiExtractor', f0, f1, f2, rois, aligned_i=0, finest_scale_i=56, pooled_height_i=pooled_height, pooled_width_i=pooled_width,
+                         pool_mode_s='avg', roi_scale_factor_i=0, sample_num_i=0, spatial_scale_f=[0.125, 0.0625, 0.03125], outputs=1)
+        return roi_feats
+
+
 def _img_area(instance):
 
     device = instance.pred_classes.device
@@ -49,7 +106,7 @@ def assign_boxes_to_levels_by_ratio(instances, min_level, max_level, is_train=Fa
     img_areas = cat([_img_area(instance_i) for instance_i in instances])
 
     # Eqn.(2) in the CenterMask paper
-    if torch.onnx.is_in_onnx_export():
+    if torch.onnx.is_in_onnx_export():  # 导出onnx时裁剪形状
         img_areas = img_areas[:box_areas.shape[0]]
         box_areas = box_areas[:img_areas.shape[0]]
     level_assignments = torch.ceil(
@@ -131,30 +188,6 @@ def convert_boxes_to_pooler_format(box_lists):
     )
 
     return pooler_fmt_boxes
-
-
-class RoiExtractor(torch.autograd.Function):
-    @staticmethod
-    def forward(self, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=7, pooled_width=7,
-                         pool_mode='avg', roi_scale_factor=0, sample_num=0, spatial_scale=[0.125, 0.0625, 0.03125]):
-        """
-        feats (torch.Tensor): feats in shape (batch, 256, H, W).
-        rois (torch.Tensor): rois in shape (k, 5).
-        return:
-            roi_feats (torch.Tensor): (k, 256, pooled_width, pooled_width)
-        """
-
-        # phony implementation for shape inference
-        k = rois.size()[0]
-        roi_feats = torch.rand((k, 256, 14, 14)) * 5 - 5
-        return roi_feats
-
-    @staticmethod
-    def symbolic(g, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=14, pooled_width=14):
-        # TODO: support tensor list type for feats
-        roi_feats = g.op('RoiExtractor', f0, f1, f2, rois, aligned_i=0, finest_scale_i=56, pooled_height_i=pooled_height, pooled_width_i=pooled_width,
-                         pool_mode_s='avg', roi_scale_factor_i=0, sample_num_i=0, spatial_scale_f=[0.125, 0.0625, 0.03125], outputs=1)
-        return roi_feats
 
 
 class ROIPooler(nn.Module):
@@ -275,7 +308,7 @@ class ROIPooler(nn.Module):
         else:
             box_lists = [x.pred_boxes for x in instances]
 
-        if torch.onnx.is_in_onnx_export():
+        if torch.onnx.is_in_onnx_export():  # 导出onnx时替换自定义算子
             output_size = self.output_size[0]
             pooler_fmt_boxes = convert_boxes_to_pooler_format(box_lists)
             pooler_fmt_boxes = pooler_fmt_boxes[:, 1::]
@@ -323,7 +356,7 @@ class ROIPooler(nn.Module):
         )
 
         for level, (x_level, pooler) in enumerate(zip(x, self.level_poolers)):
-            inds = torch.nonzero(level_assignments == level).squeeze(1)
+            inds = nonzero(input=level_assignments == level).squeeze(1)  # max [50, 1]
             pooler_fmt_boxes_level = pooler_fmt_boxes[inds]
             output[inds] = pooler(x_level, pooler_fmt_boxes_level)
 

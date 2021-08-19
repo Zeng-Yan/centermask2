@@ -11,6 +11,38 @@ from centermask.utils.comm import reduce_sum
 from centermask.layers import ml_nms
 
 
+def nonzero(**kwargs) -> torch.tensor:
+    """
+    由于华为方不支持nozero算子，该函数用topk规避nonzero
+    """
+    if not torch.onnx.is_in_onnx_export():  # 在线推理时正常执行nonzero算子
+        if kwargs.get('nms_top', None):
+            kwargs.pop(key='nms_top')
+        idx = torch.nonzero(**kwargs)
+    else:  # 导出onnx时执行的分支
+        x = kwargs['input'].to(torch.int64)  # bool/? -> int64 统一数据类型避免奇怪的错误
+        k = torch.sum(x).to(torch.float)  # 设置k值
+        if x.ndim == 1:
+            k = torch.min(torch.tensor(x.shape[0]).to(torch.float), k)  # 一维情况下避免索引越界，op 11 要求min为float
+            k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
+            _, idx = x.topk(k.item())
+            idx = idx.unsqueeze(-1)  # [M, 1] 改变形状对应nonzero的输出
+        else:  # 输入为二维情况下的执行分支
+            fixed_dim = torch.tensor(x.shape[1], dtype=torch.int64)  # [80] 记录固定的列数，以便还原二维索引
+            x = x.flatten()  # [N, 80] -> [N*80]
+            nms_top = kwargs['nms_top']  # nms_top仅在二维情况下生效
+            k = torch.min(nms_top.to(torch.float), k)  # op 11 要求min为float
+            k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
+            _, col_idx = x.topk(k.item())  # 将二维tensor展平后用topk规避
+            col_idx = col_idx.to(torch.int64)  # 增加cast便于onnx修改算子
+            row_idx = (col_idx / fixed_dim).floor().to(torch.int64)  # topk在原二维tensor对应的行索引
+            col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
+            idx = torch.stack((row_idx, col_idx), dim=-1)  # [k, 2] 合并为[[行索引, 列索引], ...]的形式
+        idx = idx[0:k[0]]  # 一个无意义的操作来保留onnx中k的计算
+
+    return idx.to(torch.int64)
+
+
 logger = logging.getLogger(__name__)
 
 INF = 100000000
@@ -61,7 +93,7 @@ def fcos_losses(
     num_classes = logits_pred.size(1)
     labels = labels.flatten()
 
-    pos_inds = torch.nonzero(labels != num_classes).squeeze(1)
+    pos_inds = nonzero(input=labels != num_classes).squeeze(1)
     num_pos_local = pos_inds.numel()
     num_gpus = get_world_size()
     total_num_pos = reduce_sum(pos_inds.new_tensor([num_pos_local])).item()
@@ -397,21 +429,18 @@ class FCOSOutputs(object):
         results = []
         for i in range(N):
             per_box_cls = box_cls[i]
-            per_candidate_inds = candidate_inds[i]
-            per_box_cls = per_box_cls[per_candidate_inds]
-
-            # per_candidate_nonzeros = per_candidate_inds.nonzero()
-            per_candidate_nonzeros = torch.nonzero(per_candidate_inds, as_tuple=False)
+            per_candidate_inds = candidate_inds[i]  # bool 索引， 有的一行可能有多个1 [N, 80] bool
+            per_candidate_nonzeros = nonzero(input=per_candidate_inds, as_tuple=False, nms_top=pre_nms_top_n[i])  # max [M, 2]
             per_box_loc = per_candidate_nonzeros[:, 0]
             per_class = per_candidate_nonzeros[:, 1]
+            per_box_cls = per_box_cls[per_box_loc, per_class]  # 修改对per_box_cls的mask方式  # 这里有flatten axis=2
 
             per_box_regression = box_regression[i]
             per_box_regression = per_box_regression[per_box_loc]
             per_locations = locations[per_box_loc]
 
             per_pre_nms_top_n = pre_nms_top_n[i]
-
-            if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
+            if per_candidate_nonzeros.shape[0] > per_pre_nms_top_n.item():  # 替换判断方式, 转onnx后该分支不会再运行
                 per_box_cls, top_k_indices = \
                     per_box_cls.topk(per_pre_nms_top_n, sorted=False)
                 per_class = per_class[top_k_indices]
@@ -441,18 +470,25 @@ class FCOSOutputs(object):
         for i in range(num_images):
             # multiclass nms
             result = ml_nms(boxlists[i], self.nms_thresh)
-            # number_of_detections = len(result)
-            number_of_detections = result.scores.shape[0]
+            number_of_detections = result.scores.shape[0]  # 更改number_of_detections的计算方式
+
+            # 替代下面的if的功能
+            k = torch.min(torch.tensor(number_of_detections, dtype=torch.float),
+                          torch.tensor(self.fpn_post_nms_top_n, dtype=torch.float))
+            k = k.reshape(1).to(torch.int64)  # topk的k必须是int64
+            _, idx = torch.topk(result.scores, k.item())
+            idx = idx[0:k[0]]
+            result = result[idx]
 
             # Limit to max_per_image detections **over all classes**
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
-                cls_scores = result.scores
+            if k > self.fpn_post_nms_top_n > 0:  # 更改判断方式
+                cls_scores = result.scores  # 这个kthvalue就是比 实际检测数量-最大限制数量 这个东西不如换成topk
                 image_thresh, _ = torch.kthvalue(
                     cls_scores.cpu(),
                     number_of_detections - self.fpn_post_nms_top_n + 1
                 )
-                keep = cls_scores >= image_thresh.item()
-                keep = torch.nonzero(keep).squeeze(1)
+                keep = cls_scores >= image_thresh  # 去掉item
+                keep = nonzero(input=keep).squeeze(1)  # max [50, 1]
                 result = result[keep]
             results.append(result)
         return results

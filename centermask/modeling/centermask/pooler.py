@@ -17,9 +17,7 @@ def nonzero(**kwargs) -> torch.tensor:
     由于华为方不支持nozero算子，该函数用topk规避nonzero
     """
     if not torch.onnx.is_in_onnx_export():  # 在线推理时正常执行nonzero算子
-        if kwargs.get('nms_top', None):
-            kwargs.pop(key='nms_top')
-        idx = torch.nonzero(**kwargs)
+        idx = torch.nonzero(kwargs['input'])
     else:  # 导出onnx时执行的分支
         x = kwargs['input'].to(torch.int64)  # bool/? -> int64 统一数据类型避免奇怪的错误
         k = torch.sum(x).to(torch.float)  # 设置k值

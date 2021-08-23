@@ -16,9 +16,7 @@ def nonzero(**kwargs) -> torch.tensor:
     由于华为方不支持nozero算子，该函数用topk规避nonzero
     """
     if not torch.onnx.is_in_onnx_export():  # 在线推理时正常执行nonzero算子
-        if kwargs.get('nms_top', None):
-            kwargs.pop(key='nms_top')
-        idx = torch.nonzero(**kwargs)
+        idx = torch.nonzero(kwargs['input'], )
     else:  # 导出onnx时执行的分支
         x = kwargs['input'].to(torch.int64)  # bool/? -> int64 统一数据类型避免奇怪的错误
         k = torch.sum(x).to(torch.float)  # 设置k值
@@ -29,7 +27,7 @@ def nonzero(**kwargs) -> torch.tensor:
             idx = idx.unsqueeze(-1)  # [M, 1] 改变形状对应nonzero的输出
         else:  # 输入为二维情况下的执行分支
             fixed_dim = torch.tensor(x.shape[1], dtype=torch.int64)  # [80] 记录固定的列数，以便还原二维索引
-            x = x.flatten()  # [N, 80] -> [N*80]
+            x = x.flatten()  # [N, 80] -> [N*80]  奇怪的地方，这里被onnx换成了reshape
             nms_top = kwargs['nms_top']  # nms_top仅在二维情况下生效
             k = torch.min(nms_top.to(torch.float), k)  # op 11 要求min为float
             k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
@@ -433,7 +431,15 @@ class FCOSOutputs(object):
             per_candidate_nonzeros = nonzero(input=per_candidate_inds, as_tuple=False, nms_top=pre_nms_top_n[i])  # max [M, 2]
             per_box_loc = per_candidate_nonzeros[:, 0]
             per_class = per_candidate_nonzeros[:, 1]
-            per_box_cls = per_box_cls[per_box_loc, per_class]  # 修改对per_box_cls的mask方式  # 这里有flatten axis=2
+            # print('\n\nper_box_cls, per_box_loc, per_class')
+            # print(per_box_cls.dtype, per_box_loc.dtype, per_class.dtype)
+            # print(per_box_cls.shape, per_box_loc.shape, per_class.shape)
+            # per_box_cls = per_box_cls[per_box_loc, per_class]  # 修改对per_box_cls的mask方式  # 这里有flatten axis=2
+            # print(per_box_cls.shape, per_box_loc.shape, per_class.shape, '\n' * 2)
+
+            flat_idx = per_box_cls.shape[-1] * per_box_loc + per_class
+            flat_cls = per_box_cls.reshape(per_box_cls.shape[0]*per_box_cls.shape[1])
+            per_box_cls = flat_cls[flat_idx]
 
             per_box_regression = box_regression[i]
             per_box_regression = per_box_regression[per_box_loc]

@@ -18,10 +18,10 @@ def nonzero(**kwargs) -> torch.tensor:
     if not torch.onnx.is_in_onnx_export():  # 在线推理时正常执行nonzero算子
         idx = torch.nonzero(kwargs['input'], )
     else:  # 导出onnx时执行的分支
-        x = kwargs['input'].to(torch.int64)  # bool/? -> int64 统一数据类型避免奇怪的错误
-        k = torch.sum(x).to(torch.float)  # 设置k值
+        x = kwargs['input'].to(torch.float32)  # bool/? -> int64 统一数据类型避免奇怪的错误
+        k = torch.sum(x)  # 设置k值
         if x.ndim == 1:
-            k = torch.min(torch.tensor(x.shape[0]).to(torch.float), k)  # 一维情况下避免索引越界，op 11 要求min为float
+            k = torch.min(torch.tensor(x.shape[0]).to(torch.float32), k)  # 一维情况下避免索引越界，op 11 要求min为float
             k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
             _, idx = x.topk(k.item())
             idx = idx.unsqueeze(-1)  # [M, 1] 改变形状对应nonzero的输出
@@ -29,12 +29,13 @@ def nonzero(**kwargs) -> torch.tensor:
             fixed_dim = torch.tensor(x.shape[1], dtype=torch.int64)  # [80] 记录固定的列数，以便还原二维索引
             x = x.flatten()  # [N, 80] -> [N*80]  奇怪的地方，这里被onnx换成了reshape
             nms_top = kwargs['nms_top']  # nms_top仅在二维情况下生效
-            k = torch.min(nms_top.to(torch.float), k)  # op 11 要求min为float
+            k = torch.min(nms_top.to(torch.float32), k)  # op 11 要求min为float
             k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
             _, col_idx = x.topk(k.item())  # 将二维tensor展平后用topk规避
             col_idx = col_idx.to(torch.int64)  # 增加cast便于onnx修改算子
             row_idx = (col_idx / fixed_dim).floor().to(torch.int64)  # topk在原二维tensor对应的行索引
-            col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
+            # col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
+            col_idx = (col_idx - row_idx * fixed_dim).to(torch.int64)  # opset9 不支持fmod
             idx = torch.stack((row_idx, col_idx), dim=-1)  # [k, 2] 合并为[[行索引, 列索引], ...]的形式
         idx = idx[0:k[0]]  # 一个无意义的操作来保留onnx中k的计算
 
@@ -418,8 +419,8 @@ class FCOSOutputs(object):
             box_cls = box_cls * ctrness[:, :, None]
         candidate_inds = box_cls > self.pre_nms_thresh
         # pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = candidate_inds.reshape(N, -1).sum(1).to(torch.float32)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n).to(torch.int64)
+        pre_nms_top_n = candidate_inds.reshape(N, -1).to(torch.float32).sum(1)
+        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)  # int64 float32
 
         if not self.thresh_with_ctr:
             box_cls = box_cls * ctrness[:, :, None]

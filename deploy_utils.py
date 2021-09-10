@@ -1,9 +1,13 @@
-import torch
-from torch.utils.data import DataLoader
-import torch.nn as nn
-import numpy as np
+# defining misc funcs using in deploying
+# Author: zengyan
+# Final: 21.08.28
+
 import os
 import sys
+import torch
+import torch.nn as nn
+import numpy as np
+from torch.utils.data import DataLoader
 sys.path.append('./centermask2')
 
 import detectron2.data.transforms as T
@@ -94,7 +98,7 @@ def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
     return image_tensor
 
 
-def single_wrap_outputs(tuple_outputs: tuple, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE) -> list:
+def single_wrap_outputs(tuple_outputs: any, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE) -> list:
     """
     将元组形式的模型输出重新封装成[Instances.fields]的形式
     """

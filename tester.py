@@ -1,3 +1,7 @@
+# do evaluation to results of inference in different model-format
+# Author: zengyan
+# Final: 21.08.28
+
 import torch
 import argparse
 from onnxruntime import InferenceSession
@@ -32,7 +36,7 @@ def inference_onnx(session, data_loader, evaluator):
     return evaluator.evaluate()
 
 
-def inference_fixed(model, data_loader, evaluator):
+def inference_mod(model, data_loader, evaluator):
     evaluator.reset()
     for idx, inputs in enumerate(data_loader):
         print(inputs[0]['file_name'])
@@ -63,8 +67,8 @@ def test(launcher, config, typ):
         evaluator = COCOEvaluator(dataset_name, output_dir=config.OUTPUT_DIR)
         if typ == 'onnx':
             results_i = inference_onnx(launcher, data_loader, evaluator)
-        elif typ == 'fixed':
-            results_i = inference_fixed(launcher, data_loader, evaluator)
+        elif typ == 'mod':
+            results_i = inference_mod(launcher, data_loader, evaluator)
         else:
             results_i = inference_origin(launcher, data_loader, evaluator)
         results[dataset_name] = results_i
@@ -78,11 +82,11 @@ def test(launcher, config, typ):
 if __name__ == '__main__':
     '''
     run this file like:
-    python test.py --config-file "centermask2/configs/centermask/zy_model_config.yaml" \
+    python tester.py --config-file "centermask2/configs/centermask/zy_model_config.yaml" \
      --type onnx MODEL.WEIGHTS "/home/zeng/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # set cfg
-    parser = argparse.ArgumentParser(description="Convert a model using tracing.")
+    parser = argparse.ArgumentParser(description="eval results of inference in different model-format")
     parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file")
     parser.add_argument("--type", default="onnx", help="model type")
     parser.add_argument("opts", help="Modify config options using the command-line", default=None, nargs=argparse.REMAINDER,)
@@ -94,7 +98,7 @@ if __name__ == '__main__':
         onnx_path = 'centermask2.onnx'
         onnx_session = InferenceSession(onnx_path)
         lch = onnx_session
-    elif args.type == 'fixed':
+    elif args.type == 'mod':
         META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
         META_ARCH_REGISTRY.register(GeneralizedRCNN)  # re-registry RCNN
         print('USING MODIFIED META ARCHITECTURE (inference)')

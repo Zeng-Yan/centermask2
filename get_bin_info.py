@@ -16,7 +16,7 @@ def get_bin_info(file_path, info_name, width, height):
 if __name__ == '__main__':
     '''
     using like:
-    python3 get_info.py prep_img_bin/ ./pre_bin.info 1344 1344
+    python3 get_bin_info.py prep_img_bin/ ./pre_bin.info 1344 1344
     '''
     file_path = sys.argv[1]
     info_name = sys.argv[2]

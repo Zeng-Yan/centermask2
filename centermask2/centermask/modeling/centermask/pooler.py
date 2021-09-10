@@ -17,25 +17,26 @@ def nonzero(**kwargs) -> torch.tensor:
     由于华为方不支持nozero算子，该函数用topk规避nonzero
     """
     if not torch.onnx.is_in_onnx_export():  # 在线推理时正常执行nonzero算子
-        idx = torch.nonzero(kwargs['input'])
+        idx = torch.nonzero(kwargs['input'], )
     else:  # 导出onnx时执行的分支
-        x = kwargs['input'].to(torch.int64)  # bool/? -> int64 统一数据类型避免奇怪的错误
-        k = torch.sum(x).to(torch.float)  # 设置k值
+        x = kwargs['input'].to(torch.float32)  # bool/? -> int64 统一数据类型避免奇怪的错误
+        k = torch.sum(x)  # 设置k值
         if x.ndim == 1:
-            k = torch.min(torch.tensor(x.shape[0]).to(torch.float), k)  # 一维情况下避免索引越界，op 11 要求min为float
+            k = torch.min(torch.tensor(x.shape[0]).to(torch.float32), k)  # 一维情况下避免索引越界，op 11 要求min为float
             k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
             _, idx = x.topk(k.item())
             idx = idx.unsqueeze(-1)  # [M, 1] 改变形状对应nonzero的输出
         else:  # 输入为二维情况下的执行分支
             fixed_dim = torch.tensor(x.shape[1], dtype=torch.int64)  # [80] 记录固定的列数，以便还原二维索引
-            x = x.flatten()  # [N, 80] -> [N*80]
+            x = x.flatten()  # [N, 80] -> [N*80]  奇怪的地方，这里被onnx换成了reshape
             nms_top = kwargs['nms_top']  # nms_top仅在二维情况下生效
-            k = torch.min(nms_top.to(torch.float), k)  # op 11 要求min为float
+            k = torch.min(nms_top.to(torch.float32), k)  # op 11 要求min为float
             k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
             _, col_idx = x.topk(k.item())  # 将二维tensor展平后用topk规避
             col_idx = col_idx.to(torch.int64)  # 增加cast便于onnx修改算子
             row_idx = (col_idx / fixed_dim).floor().to(torch.int64)  # topk在原二维tensor对应的行索引
-            col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
+            # col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
+            col_idx = (col_idx - row_idx * fixed_dim).to(torch.int64)  # opset9 不支持fmod
             idx = torch.stack((row_idx, col_idx), dim=-1)  # [k, 2] 合并为[[行索引, 列索引], ...]的形式
         idx = idx[0:k[0]]  # 一个无意义的操作来保留onnx中k的计算
 
@@ -54,7 +55,7 @@ class RoiExtractor(torch.autograd.Function):
         """
 
         # phony implementation for shape inference
-        k = rois.size()[0]
+        k = rois.shape[0]
         roi_feats = torch.rand((k, 256, 14, 14)) * 5 - 5
         return roi_feats
 
@@ -309,7 +310,10 @@ class ROIPooler(nn.Module):
         if torch.onnx.is_in_onnx_export():  # 导出onnx时替换自定义算子
             output_size = self.output_size[0]
             pooler_fmt_boxes = convert_boxes_to_pooler_format(box_lists)
-            pooler_fmt_boxes = pooler_fmt_boxes[:, 1::]
+            # print(f'\nbefore slice: {pooler_fmt_boxes.shape}')
+            # pooler_fmt_boxes = pooler_fmt_boxes[:, 1::]
+            # print(f'after slice: {pooler_fmt_boxes.shape}')
+
             roi_feats = RoiExtractor.apply(x[0], x[1], x[2], pooler_fmt_boxes, 1, 56, output_size, output_size)
             return roi_feats
 
@@ -331,7 +335,8 @@ class ROIPooler(nn.Module):
         )
 
         pooler_fmt_boxes = convert_boxes_to_pooler_format(box_lists)
-
+        print(f'\n pooler_fmt_boxes pooler_fmt_boxes[:, 1::]')
+        print(f'{pooler_fmt_boxes.shape} {pooler_fmt_boxes[:, 1::].shape}')
         if num_level_assignments == 1:
             return self.level_poolers[0](x[0], pooler_fmt_boxes)
 

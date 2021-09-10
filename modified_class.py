@@ -1,3 +1,7 @@
+# defining some simplified classes using in deploying to replace those in detectron2
+# Author: zengyan
+# Final: 21.08.28
+
 import torch
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 

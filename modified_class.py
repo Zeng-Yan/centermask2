@@ -1,9 +1,10 @@
 # defining some simplified classes using in deploying to replace those in detectron2
 # Author: zengyan
-# Final: 21.08.28
+# Final: 21.09.12
 
 import torch
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
+from deploy_utils import single_flatten_to_tuple
 
 
 class FakeImageList(object):
@@ -24,54 +25,16 @@ class FakeImageList(object):
 
 
 class GeneralizedRCNN(RCNN):
-    def inference(
-        self,
-        batched_inputs,
-        detected_instances=None,
-        do_preprocess: bool = True,
-        do_postprocess: bool = True,
-    ):
+    def forward(self, img_tensors: torch.Tensor) -> tuple:
         """
-        Run inference on the given inputs.
-
-        Args:
-            batched_inputs (list[dict]): same as in :meth:`forward`
-            detected_instances (None or list[Instances]): if not None, it
-                contains an `Instances` object per image. The `Instances`
-                object contains "pred_boxes" and "pred_classes" which are
-                known boxes in the image.
-                The inference will then skip the detection of bounding boxes,
-                and only predict other per-ROI outputs.
-            do_preprocess
-            do_postprocess (bool): whether to apply post-processing on the outputs.
-
-        Returns:
-            When do_postprocess=True, same as in :meth:`forward`.
-            Otherwise, a list[Instances] containing raw network outputs.
+        A simplified GeneralizedRCNN for converting pth into onnx,
+        without processing (such as preprocessing and postprocessing) and branches not used in inference
         """
         assert not self.training
 
-        if do_preprocess:
-            images = self.preprocess_image(batched_inputs)
-        else:
-            images = batched_inputs
-
-        features = self.backbone(images.tensor)
-
-        if detected_instances is None:
-            if self.proposal_generator is not None:
-                proposals, _ = self.proposal_generator(images, features, None)
-            else:
-                assert "proposals" in batched_inputs[0]
-                proposals = [x["proposals"].to(self.device) for x in batched_inputs]
-
-            results, _ = self.roi_heads(images, features, proposals, None)
-        else:
-            detected_instances = [x.to(self.device) for x in detected_instances]
-            results = self.roi_heads.forward_with_given_boxes(features, detected_instances)
-
-        if do_postprocess:
-            assert not torch.jit.is_scripting(), "Scripting is not supported for postprocess."
-            return GeneralizedRCNN._postprocess(results, batched_inputs, images.image_sizes)
-        else:
-            return results
+        features = self.backbone(img_tensors)
+        images = FakeImageList(img_tensors)
+        proposals, _ = self.proposal_generator(images, features, None)  # Instance[pred_boxes, scores, pred_classes, locations]
+        results, _ = self.roi_heads(images, features, proposals, None)
+        results = single_flatten_to_tuple(results[0])
+        return results

@@ -1,7 +1,7 @@
 # This is a script for converting CenterMask model into ONNX format
 # it will do some modification to the generate ONNX model as well
 # Author: zengyan
-# Final: 21.08.24
+# Final: 21.09.12
 
 import os
 import torch
@@ -15,31 +15,15 @@ from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 
-from modified_class import FakeImageList
+from modified_class import GeneralizedRCNN
 from deploy_utils import (check_keys, setup_cfg, get_sample_inputs, single_preprocessing,
                           single_wrap_outputs, postprocess, single_flatten_to_tuple)
-
-
-class GeneralizedRCNN(RCNN):
-    def forward(self, img_tensors: torch.Tensor) -> tuple:
-        """
-        A simplified GeneralizedRCNN for converting pth into onnx,
-        without processing (such as preprocessing and postprocessing) and branches not used in inference
-        """
-        assert not self.training
-
-        features = self.backbone(img_tensors)
-        images = FakeImageList(img_tensors)
-        proposals, _ = self.proposal_generator(images, features, None)  # Instance[pred_boxes, scores, pred_classes, locations]
-        results, _ = self.roi_heads(images, features, proposals, None)
-        results = single_flatten_to_tuple(results[0])
-        return results
 
 
 if __name__ == "__main__":
     '''
     run this file like:
-    python convert_model_into_onnx.py --config-file "centermask2/configs/centermask/zy_model_config.yaml"  --version 9 --verbose-on --fix-k \
+    python convert_model_into_onnx.py --config-file "centermask2/configs/centermask/zy_model_config.yaml"  --version 11 --verbose-on --fix-k \
     MODEL.WEIGHTS "/home/zeng/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # modify forward function of model

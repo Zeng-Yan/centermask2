@@ -14,7 +14,7 @@ from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
 
 from deploy_utils import (setup_cfg, get_sample_inputs, single_preprocessing,
                           postprocess, single_wrap_outputs, to_numpy)
-from convert_model_into_onnx import GeneralizedRCNN
+from modified_class import GeneralizedRCNN
 
 
 def run_on_image(predictions, image):

@@ -20,15 +20,15 @@
 
 （TODO：提供diff文件说明详细的修改情况）
 
-关于将模型导出为ONNX格式，请查看convert_model_into_onnx.py
+| 本仓库脚本                                                   | 功能                               |
+| ------------------------------------------------------------ | ---------------------------------- |
+| [convert_model_into_onnx.py](https://github.com/Zeng-Yan/centermask2/blob/master/convert_model_into_onnx.py) | 将模型导出为ONNX格式               |
+| [tester.py](https://github.com/Zeng-Yan/centermask2/blob/master/tester.py) | ONNX模型的推理                     |
+| [visualizer.py](https://github.com/Zeng-Yan/centermask2/blob/master/visualizer.py) | 对结果的可视化                     |
+| [preprocess_inputs_to_bin.py](https://github.com/Zeng-Yan/centermask2/blob/master/preprocess_inputs_to_bin.py) | 将数据进行预处理后保存为二进制文件 |
+| [postprocess_bin_outputs.py](https://github.com/Zeng-Yan/centermask2/blob/master/postprocess_bin_outputs.py) | 对二进制输出进行后处理及验证精度   |
 
-关于ONNX模型的推理请查看tester.py
 
-关于对结果的可视化请查看visualizer.py
-
-关于将数据进行预处理后保存为二进制文件，请查看preprocess_inputs_to_bin.py
-
-关于对二进制输出进行后处理及验证精度请查看postprocess_bin_outputs.py
 
 ### 模型理解
 
@@ -45,7 +45,7 @@
 
 标识出图片中不同类型的对象（通过掩码矩阵来实现）。
 
-![img](https://img-blog.csdn.net/20180310091534193)
+![segmentation](https://github.com/Zeng-Yan/centermask2/blob/master/pics/semantic%20segmentation.png?raw=True)
 
 **2. FPN是干什么的？**
 
@@ -53,7 +53,7 @@ FPN以层级的形式提取图像的特征图。
 
 一个backbone模型提取特征图，如下图左侧，这些特征图被FPN处理得到新特征图，如下图右侧。
 
-![image-20210701145523832](C:\Users\windf\AppData\Roaming\Typora\typora-user-images\image-20210701145523832.png)
+![FPN](https://github.com/Zeng-Yan/centermask2/blob/master/pics/FPN.png?raw=True)
 
 **3. FCOS是干什么的？**
 
@@ -63,7 +63,7 @@ FCOS基于FPN构建，使用FPN得到不同尺度的特征图，并在各个特�
 
 FCOS的每一个特征图也会对应两个分支，一个分支用于分类，另一个分支用于回归预测框的四个距离。特征图上的每一个点都对应一个Center-ness的值，这个值会与该点所预测的得分相乘，从而降低离目标中心更远的点所预测出的bound-box的得分，从而提升模型的性能。
 
-![image-20210701153001382](C:\Users\windf\AppData\Roaming\Typora\typora-user-images\image-20210701153001382.png)
+![FCOS](https://github.com/Zeng-Yan/centermask2/blob/master/pics/FCOS.png?raw=True)
 
 **4. Detectron2是什么？**
 
@@ -79,7 +79,7 @@ Detecron2是一个目标检测框架，centermask是基于Detecron2来开发的�
 
 (c) SAG-Mask 用于在FCOS检测出的RoI(Region of Interest)上分割出具体的目标。
 
-![image-20210701162029107](C:\Users\windf\AppData\Roaming\Typora\typora-user-images\image-20210701162029107.png)
+![centermask](https://github.com/Zeng-Yan/centermask2/blob/master/pics/centermask.png?raw=T)
 
 **6. 进一步了解Detectron2**
 
@@ -331,7 +331,7 @@ tracing过程将执行模型的forward函数并记录所执行的计算图，并
 
 在此之前您可能需要修改您的forward函数，确保其输入输出均为tensor数据类型，例如detectron2中forward输出是一个Instances对象，您应该将其还原为tensor的形式。另一方面，您应该尽量将预处理和后处理过程从forward函数中剥离出来。
 
-在本仓库中，我继承了detectron2的RCNN模型简化了其forward过程，仅保留了推理会执行的分支，同时去掉了前后处理操作。
+在实现本仓库时，detectron2对导出ONNX的支持并不完善，为了在不修改detectron2代码的情况下实现对模型的修改，这里简单粗暴地从`detectron2.modeling.meta_arch`中删除了原来使用的RCNN，在自己实现修改版本的RCNN后重新加入`detectron2.modeling.meta_arch`中。具体地，修改版RCNN继承了detectron2的RCNN模型简化了其forward过程，仅保留了推理会执行的分支，同时去掉了前后处理操作。
 
 ```python
 from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
@@ -363,6 +363,15 @@ class GeneralizedRCNN(RCNN):
         results, _ = self.roi_heads(images, features, proposals, None)
         results = single_flatten_to_tuple(results[0])
         return results
+```
+
+修改完RCNN后，从注册机中删除原来的RCNN并重新注册。
+
+```python
+from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
+
+META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry
+META_ARCH_REGISTRY.register(GeneralizedRCNN)  # re-registry RCNN
 ```
 
 剥离detectron2的预处理过程，主要是图片的读取，Resize，Normalize及Padding。您应该仔细参考源代码和论文确保您的预处理过程和源模型是一致的。
@@ -473,6 +482,21 @@ def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE) -> l
 准备好经过预处理的样例输入，指明输入输出和onnx保存路径，然后您就可以尝试导出onnx了，其核心代码如下。再次强调tracing以样例输入获取计算图，因此您需要指定动态轴说明您的输入输出在哪些维度上是变化的。
 
 ```python
+# get inputs
+if args.pic_file:
+    img_path = args.pic_file
+else:
+    img_path = os.environ['DETECTRON2_DATASETS'] + '/coco/val2017/000000000139.jpg'
+batched_inputs = get_sample_inputs(img_path)  # read and resize
+inputs = single_preprocessing(batched_inputs[0]['image']).unsqueeze(0)  # preprocessing
+
+# build torch model
+model = build_model(cfg)
+path_pth = cfg.MODEL.WEIGHTS
+# check_keys(model, torch.load(path_pth)['model'])  # compare keys
+DetectionCheckpointer(model).load(path_pth)  # load weights
+model.eval()
+
 input_names = ['img']
 output_names = ['locations', 'mask_scores', 'pred_boxes', 'pred_classes', 'pred_masks', 'scores']
 dynamic_axes = {
@@ -489,33 +513,62 @@ torch.onnx.export(model, inputs, onnx_path,
                   opset_version=11, verbose=True)
 ```
 
-从torch模型转为onnx模型的过程中可能会出现诸多问题，特别是当模型结构复杂时，包括但不限于以下的情形
+此时，您已经可以通过运行`convert_model_into_onnx.py`文件来得到ONNX了：
+
+```
+python convert_model_into_onnx.py --config-file "centermask2/configs/centermask/zy_model_config.yaml"  --version 11 --verbose-on     MODEL.WEIGHTS "centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
+```
+
+**3.ONNX调试**
+
+从torch模型转为onnx模型的过程中可能会出现诸多问题，特别是当模型结构复杂时。多数情况下，您需要知晓出现问题的ONNX算子是由哪里的源代码所产生的。
+
+为此，首先确保`torch.onnx.export`中的参数 `verbose=True`，打印导出过程的详细信息。您也可以使用输出重定向或者`nohup`将信息保存到文件中便于后续查看。
+
+如下所示的样例导出信息含义为：输出变量`pred_classes`由输入变量`2640`经过`maskiou_head.py`第`55`行代码中的`Cast`运算所产生。
+
+```
+%pred_classes : Long(50, strides=[1], requires_grad=0, device=cpu) = onnx::Cast[to=7](%2640) 
+#./centermask2/centermask/modeling/centermask/maskiou_head.py:55:0
+```
+
+若您安装了Netron，则您可以在模型中搜索该输出变量找到该Cast算子节点，这样您就可以将ONNX中的算子节点和源代码关联起来了。
+
+一些问题可能出现在ONNX的导出，推理过程中导致报错或者精度损失。例如：
+
+1. 变量维度失配，多数情况下这是由于tracing过程中部分变量被误作为常量记录所导致的，您可以定位到源码，将int变量变为tensor变量，或者增加维度变换操作强制保持维度的一致等等。
+2. 由于opset版本导致的数据类型或输入输出不一致，您可以在onnx的GitHub中找到不同opset版本中的算子说明，确认其支持的数据类型和输入输出，然后您可以在源代码中进行变量或类型变换来规避。
+3. 您选用的opset版本或者您部署的后端不支持某个算子，那么您需要修改源代码用其他手段，或者修改onnx用其他算子来替代该算子的功能。demos中的两个例子可能会对您有所启发，展示了替代特殊情景下的nonzero算子的样例。
+4. 您部署的后端有ONNX算子集所没有的自定义算子，您可以在源代码中通过一个类来伪造这个算子使得ONNX能够正常导出。
+
+```python 
+class RoiExtractor(torch.autograd.Function):
+    @staticmethod
+    def forward(self, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=7, pooled_width=7, pool_mode='avg', roi_scale_factor=0, sample_num=0, spatial_scale=[0.125, 0.0625, 0.03125]):
+        """
+        feats (torch.Tensor): feats in shape (batch, 256, H, W).
+        rois (torch.Tensor): rois in shape (k, 5).
+        return:
+            roi_feats (torch.Tensor): (k, 256, pooled_width, pooled_width)
+        """
+
+        # phony implementation for shape inference
+        k = rois.shape[0]
+        roi_feats = torch.rand((k, 256, 14, 14)) * 5 - 5
+        return roi_feats
+
+    @staticmethod
+    def symbolic(g, f0, f1, f2, rois, aligned=0, finest_scale=56, pooled_height=14, pooled_width=14):
+        roi_feats = g.op('RoiExtractor', f0, f1, f2, rois, aligned_i=0, finest_scale_i=56, pooled_height_i=pooled_height, pooled_width_i=pooled_width, pool_mode_s='avg', roi_scale_factor_i=0, sample_num_i=0, spatial_scale_f=[0.125, 0.0625, 0.03125], outputs=1)
+        return roi_feats
 
 
-
-为此，首先介绍导出onnx的调试方法
-
-
-
-
-
-1由于tracing过程中部分变量被误作为常量记录，导致的失配，
-
-定位到源码
-
-
-
-2不同的部署后端所支持的opset版本不同，而不同版本opset所覆盖的算子不同，相同算子在不同的opset版本中能够支持的数据类型等也不一致。
-
-
-
-
-
-
-
-
-
-
+if torch.onnx.is_in_onnx_export():  # 导出onnx时替换自定义算子
+    output_size = self.output_size[0]
+    pooler_fmt_boxes = convert_boxes_to_pooler_format(box_lists)
+    roi_feats = RoiExtractor.apply(x[0], x[1], x[2], pooler_fmt_boxes, 1, 56, output_size, output_size)
+    return roi_feats
+```
 
 
 

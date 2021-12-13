@@ -43,26 +43,27 @@ class TestNet(torch.nn.Module):
         return nonzero(input=inp, as_tuple=False, nms_top=torch.tensor(10), m=self.m)
 
 
-net1 = TestNet(False)
-net2 = TestNet(True)
-x = torch.randint(0, 2, (3, 2))
-print(x)
-x_array = x.detach().cpu().numpy()
+if __name__ == '__main__':
+    net1 = TestNet(False)
+    net2 = TestNet(True)
+    x = torch.randint(0, 2, (3, 2))
+    print(x)
+    x_array = x.detach().cpu().numpy()
 
-onnx_path = 'Net1.onnx'
-torch.onnx.export(net1, x, onnx_path,
-                  input_names=['x'], output_names=['y'], dynamic_axes={'y': [0]},
-                  opset_version=11, verbose=False)
+    onnx_path = 'Net1.onnx'
+    torch.onnx.export(net1, x, onnx_path,
+                      input_names=['x'], output_names=['y'], dynamic_axes={'y': [0]},
+                      opset_version=11, verbose=False)
 
-onnx_session = onnxruntime.InferenceSession(onnx_path)
-output = onnx_session.run(['y'], {'x': x_array})
-print(output)
+    onnx_session = onnxruntime.InferenceSession(onnx_path)
+    output = onnx_session.run(['y'], {'x': x_array})
+    print(output)
 
-onnx_path = 'Net2.onnx'
-torch.onnx.export(net2, x, onnx_path,
-                  input_names=['x'], output_names=['y'], dynamic_axes={'y': [0]},
-                  opset_version=11, verbose=False)
+    onnx_path = 'Net2.onnx'
+    torch.onnx.export(net2, x, onnx_path,
+                      input_names=['x'], output_names=['y'], dynamic_axes={'y': [0]},
+                      opset_version=11, verbose=False)
 
-onnx_session = onnxruntime.InferenceSession(onnx_path)
-output = onnx_session.run(['y'], {'x': x_array})
-print(output)
+    onnx_session = onnxruntime.InferenceSession(onnx_path)
+    output = onnx_session.run(['y'], {'x': x_array})
+    print(output)

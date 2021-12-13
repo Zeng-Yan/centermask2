@@ -23,8 +23,8 @@ from deploy_utils import (check_keys, setup_cfg, get_sample_inputs, single_prepr
 if __name__ == "__main__":
     '''
     run this file like:
-    python convert_model_into_onnx.py --config-file "centermask2/configs/centermask/zy_model_config.yaml"  --version 11 --verbose-on --fix-k \
-    MODEL.WEIGHTS "/home/zeng/centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
+    python convert_model_into_onnx.py --config-file "centermask2/configs/centermask/zy_model_config.yaml"  --version 11 --verbose-on \
+    MODEL.WEIGHTS "centermask2-V-39-eSE-FPN-ms-3x.pth" MODEL.DEVICE cpu
     '''
     # modify forward function of model
     META_ARCH_REGISTRY._obj_map.pop('GeneralizedRCNN')  # delete RCNN from registry

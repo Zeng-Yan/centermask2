@@ -1,6 +1,7 @@
 # visualizing the outputs of model
+# will help you verify whether correct postprocessing and preprocessing been applied to your pics
 # Author: zengyan
-# Final: 21.08.28
+# Final: 21.09.12
 
 import argparse
 import torch
@@ -17,12 +18,13 @@ from deploy_utils import (setup_cfg, get_sample_inputs, single_preprocessing,
 from modified_class import GeneralizedRCNN
 
 
-def run_on_image(predictions, image):
+def run_on_image(predictions, image, configs):
     """
     Args:
         predictions
         image (np.ndarray): an image of shape (H, W, C) (in BGR order).
             This is the format used by OpenCV.
+        configs
 
     Returns:
         predictions (dict): the output of the model.
@@ -30,7 +32,7 @@ def run_on_image(predictions, image):
     """
     # Convert image from OpenCV BGR format to Matplotlib RGB format.
     image = image[:, :, ::-1]
-    visualizer = Visualizer(image, MetadataCatalog.get(cfg.DATASETS.TEST[0]), instance_mode=ColorMode.IMAGE)
+    visualizer = Visualizer(image, MetadataCatalog.get(configs.DATASETS.TEST[0]), instance_mode=ColorMode.IMAGE)
     instances = predictions["instances"]
     vis_output = visualizer.draw_instance_predictions(predictions=instances)
     return predictions, vis_output
@@ -77,7 +79,7 @@ if __name__ == "__main__":
 
     # read original image and visualize outputs
     original_image = detection_utils.read_image(img_path, format="BGR")
-    _, visualized_output = run_on_image(outputs[0], original_image)
+    _, visualized_output = run_on_image(outputs[0], original_image, cfg)
     visualized_output.save('visualized_outputs_mod.jpg')
 
     # fix input compare model output
@@ -88,7 +90,7 @@ if __name__ == "__main__":
 
     # set original image as the image after preprocessing and visualize outputs
     original_image = to_numpy(inputs.squeeze(0)).transpose(1, 2, 0)[:, :, ::-1]
-    _, visualized_output = run_on_image(outputs[0], original_image)
+    _, visualized_output = run_on_image(outputs[0], original_image, cfg)
     visualized_output.save('visualized_outputs_pad.jpg')
 
     # build origin model
@@ -100,7 +102,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         outputs = origin_model(batched_inputs)
     original_image = detection_utils.read_image(img_path, format="BGR")
-    _, visualized_output = run_on_image(outputs[0], original_image)
+    _, visualized_output = run_on_image(outputs[0], original_image, cfg)
     visualized_output.save('visualized_outputs_ori.jpg')
 
 

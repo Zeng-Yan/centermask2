@@ -28,7 +28,7 @@ class GeneralizedRCNN(RCNN):
     def forward(self, img_tensors: torch.Tensor) -> tuple:
         """
         A simplified GeneralizedRCNN for converting pth into onnx,
-        without processing (such as preprocessing and postprocessing) and branches not used in inference
+        without processing (preprocessing and postprocessing) and branches not used in inference
         """
         assert not self.training
 

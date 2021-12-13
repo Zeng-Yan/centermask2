@@ -327,10 +327,199 @@ pip install onnx-simplifier
 
 **2. 导出ONNX**
 
-TODO
+tracing过程将执行模型的forward函数并记录所执行的计算图，并转为onnx格式。
+
+在此之前您可能需要修改您的forward函数，确保其输入输出均为tensor数据类型，例如detectron2中forward输出是一个Instances对象，您应该将其还原为tensor的形式。另一方面，您应该尽量将预处理和后处理过程从forward函数中剥离出来。
+
+在本仓库中，我继承了detectron2的RCNN模型简化了其forward过程，仅保留了推理会执行的分支，同时去掉了前后处理操作。
+
+```python
+from detectron2.modeling.meta_arch.rcnn import GeneralizedRCNN as RCNN
+
+
+def single_flatten_to_tuple(wrapped_outputs: object) -> tuple:
+    """
+    模型输出被[Instances.fields]的形式封装，将不同的输出拆解出来组成元组
+    :return: (locations, mask_scores, pred_boxes, pred_classes, pred_masks, scores)
+    """
+    field = wrapped_outputs.get_fields()
+    tuple_outputs = (field['locations'], field['mask_scores'],
+                     field['pred_boxes'].tensor, field['pred_classes'],
+                     field['pred_masks'], field['scores'])
+    return tuple_outputs
+
+
+class GeneralizedRCNN(RCNN):
+    def forward(self, img_tensors: torch.Tensor) -> tuple:
+        """
+        A simplified GeneralizedRCNN for converting pth into onnx,
+        without processing (preprocessing and postprocessing) and branches not used in inference
+        """
+        assert not self.training
+
+        features = self.backbone(img_tensors)
+        images = FakeImageList(img_tensors)
+        proposals, _ = self.proposal_generator(images, features, None)  # Instance[pred_boxes, scores, pred_classes, locations]
+        results, _ = self.roi_heads(images, features, proposals, None)
+        results = single_flatten_to_tuple(results[0])
+        return results
+```
+
+剥离detectron2的预处理过程，主要是图片的读取，Resize，Normalize及Padding。您应该仔细参考源代码和论文确保您的预处理过程和源模型是一致的。
+
+```python
+def get_sample_inputs(path: str) -> list:
+    """
+    从路径读取一张图片，并按最短边缩放到800，且最长边不超过1333
+    :return: [{"image": tensor, "height": tensor, "width": tensor}]
+    """
+    # load image from path
+    original_image = detection_utils.read_image(path, format="BGR")
+    height, width = original_image.shape[:2]
+    # resize
+    aug = T.ResizeShortestEdge([MIN_EDGE_SIZE, MIN_EDGE_SIZE], MAX_EDGE_SIZE)  # [800, 800], 1333
+    image = aug.get_transform(original_image).apply_image(original_image)
+    image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
+    dic_img = {"image": image, "height": height, "width": width}
+    return [dic_img]
+
+
+def single_preprocessing(image_tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Normalize and pad the input images.
+    """
+    # Normalize
+    pixel_mean = torch.tensor([103.53, 116.28, 123.675]).view(-1, 1, 1)
+    pixel_std = torch.tensor([1.0, 1.0, 1.0]).view(-1, 1, 1)
+    image_tensor = (image_tensor - pixel_mean) / pixel_std
+
+    # Padding
+    pad_h = FIXED_EDGE_SIZE - image_tensor.shape[1]
+    pad_w = FIXED_EDGE_SIZE - image_tensor.shape[2]
+
+    # padding on right and bottom
+    image_tensor = nn.ZeroPad2d(padding=(0, pad_w, 0, pad_h))(image_tensor)
+
+    return image_tensor
+```
+
+剥离后处理过程。
+
+```python
+def single_wrap_outputs(tuple_outputs: any, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE) -> list:
+    """
+    将元组形式的模型输出重新封装成[Instances.fields]的形式
+    """
+    instances = Instances((height, width))
+    tuple_outputs = [torch.tensor(x)[:50] for x in tuple_outputs]
+    instances.set('locations', tuple_outputs[0])
+    instances.set('mask_scores', tuple_outputs[1])
+    instances.set('pred_boxes', Boxes(tuple_outputs[2]))
+    instances.set('pred_classes', tuple_outputs[3])
+    instances.set('pred_masks', tuple_outputs[4])
+    instances.set('scores', tuple_outputs[5])
+
+    return [instances]
+
+
+def detector_postprocess(
+    results: Instances, h: int, w: int, mask_threshold: float = 0.5
+) -> Instances:
+    """
+    This function will resize the raw outputs of an R-CNN detector
+    to produce outputs according to the desired output resolution.
+    """
+    results = Instances((h, w), **results.get_fields())
+
+    scale = MIN_EDGE_SIZE / min(h, w)
+    new_h = int(np.floor(h * scale))
+    new_w = int(np.floor(w * scale))
+    if max(new_h, new_w) > MAX_EDGE_SIZE:
+        scale = MAX_EDGE_SIZE / max(new_h, new_w) * scale
+
+    scale_x, scale_y = 1/scale, 1/scale
+
+    # Rescale pred_boxes
+    output_boxes = results.pred_boxes
+    output_boxes.scale(scale_x, scale_y)
+    output_boxes.clip(results.image_size)
+    results = results[output_boxes.nonempty()]
+
+    # Rescale pred_masks
+    roi_masks = ROIMasks(results.pred_masks[:, 0, :, :])
+    results.pred_masks = roi_masks.to_bitmasks(
+        results.pred_boxes, h, w, mask_threshold
+    ).tensor
+
+    return results
+
+
+def postprocess(instances: list, height=MAX_EDGE_SIZE, width=MAX_EDGE_SIZE) -> list:
+    """
+    Rescale the output instances to the target size.
+
+    :param instances: list[Instances]
+    :param height: int
+    :param width: int
+    :return: [{"instances": Instances}]
+    """
+    processed_results = []
+    for results_per_image in instances:
+        r = detector_postprocess(results_per_image, height, width)
+        processed_results.append({"instances": r})
+    return processed_results
+```
+
+准备好经过预处理的样例输入，指明输入输出和onnx保存路径，然后您就可以尝试导出onnx了，其核心代码如下。再次强调tracing以样例输入获取计算图，因此您需要指定动态轴说明您的输入输出在哪些维度上是变化的。
+
+```python
+input_names = ['img']
+output_names = ['locations', 'mask_scores', 'pred_boxes', 'pred_classes', 'pred_masks', 'scores']
+dynamic_axes = {
+    'locations': [0],
+    'mask_scores': [0],
+    'pred_boxes': [0],
+    'pred_classes': [0],
+    'pred_masks': [0],
+    'scores': [0]
+}
+onnx_path = 'centermask2.onnx'
+torch.onnx.export(model, inputs, onnx_path,
+                  input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes,
+                  opset_version=11, verbose=True)
+```
+
+从torch模型转为onnx模型的过程中可能会出现诸多问题，特别是当模型结构复杂时，包括但不限于以下的情形
+
+
+
+为此，首先介绍导出onnx的调试方法
+
+
+
+
+
+1由于tracing过程中部分变量被误作为常量记录，导致的失配，
+
+定位到源码
+
+
+
+2不同的部署后端所支持的opset版本不同，而不同版本opset所覆盖的算子不同，相同算子在不同的opset版本中能够支持的数据类型等也不一致。
+
+
+
+
+
+
+
+
+
+
+
+
 
 **3. 测试与结果可视化**
 
 TODO
-
 

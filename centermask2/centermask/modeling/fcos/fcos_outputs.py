@@ -19,25 +19,19 @@ def nonzero(**kwargs) -> torch.tensor:
         idx = torch.nonzero(kwargs['input'], )
     else:  # 导出onnx时执行的分支
         x = kwargs['input'].to(torch.float32)  # bool/? -> int64 统一数据类型避免奇怪的错误
-        k = torch.sum(x)  # 设置k值
+        k = 1000
+        k = min(k, kwargs['nms_top'].item())
         if x.ndim == 1:
-            k = torch.min(torch.tensor(x.shape[0]).to(torch.float32), k)  # 一维情况下避免索引越界，op 11 要求min为float
-            k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
-            _, idx = x.topk(k.item())
+            _, idx = x.topk(k)
             idx = idx.unsqueeze(-1)  # [M, 1] 改变形状对应nonzero的输出
         else:  # 输入为二维情况下的执行分支
             fixed_dim = torch.tensor(x.shape[1], dtype=torch.int64)  # [80] 记录固定的列数，以便还原二维索引
             x = x.flatten()  # [N, 80] -> [N*80]  奇怪的地方，这里被onnx换成了reshape
-            nms_top = kwargs['nms_top']  # nms_top仅在二维情况下生效
-            k = torch.min(nms_top.to(torch.float32), k)  # op 11 要求min为float
-            k = k.reshape(1).to(torch.int64)  # topk的k必须是1d int64
-            _, col_idx = x.topk(k.item())  # 将二维tensor展平后用topk规避
+            _, col_idx = x.topk(1000)  # 将二维tensor展平后用topk规避
             col_idx = col_idx.to(torch.int64)  # 增加cast便于onnx修改算子
             row_idx = (col_idx / fixed_dim).floor().to(torch.int64)  # topk在原二维tensor对应的行索引
-            # col_idx = col_idx.fmod(fixed_dim).to(torch.int64)  # topk在原二维tensor对应的列索引
             col_idx = (col_idx - row_idx * fixed_dim).to(torch.int64)  # opset9 不支持fmod
             idx = torch.stack((row_idx, col_idx), dim=-1)  # [k, 2] 合并为[[行索引, 列索引], ...]的形式
-        idx = idx[0:k[0]]  # 一个无意义的操作来保留onnx中k的计算
 
     return idx.to(torch.int64)
 
@@ -429,14 +423,13 @@ class FCOSOutputs(object):
         for i in range(N):
             per_box_cls = box_cls[i]
             per_candidate_inds = candidate_inds[i]  # bool 索引， 有的一行可能有多个1 [N, 80] bool
+            per_candidate_inds = torch.cat((per_candidate_inds, torch.zeros((1000, 80))))  #
+            # per_candidate_inds = torch.nn.ZeroPad2d(padding=(0, 0, 0, 1000))(per_candidate_inds)
+
             per_candidate_nonzeros = nonzero(input=per_candidate_inds, as_tuple=False, nms_top=pre_nms_top_n[i])  # max [M, 2]
+
             per_box_loc = per_candidate_nonzeros[:, 0]
             per_class = per_candidate_nonzeros[:, 1]
-            # print('\n\nper_box_cls, per_box_loc, per_class')
-            # print(per_box_cls.dtype, per_box_loc.dtype, per_class.dtype)
-            # print(per_box_cls.shape, per_box_loc.shape, per_class.shape)
-            # per_box_cls = per_box_cls[per_box_loc, per_class]  # 修改对per_box_cls的mask方式  # 这里有flatten axis=2
-            # print(per_box_cls.shape, per_box_loc.shape, per_class.shape, '\n' * 2)
 
             flat_idx = per_box_cls.shape[-1] * per_box_loc + per_class
             flat_cls = per_box_cls.reshape(per_box_cls.shape[0]*per_box_cls.shape[1])
@@ -447,12 +440,13 @@ class FCOSOutputs(object):
             per_locations = locations[per_box_loc]
 
             per_pre_nms_top_n = pre_nms_top_n[i]
-            if per_candidate_nonzeros.shape[0] > per_pre_nms_top_n.item():  # 替换判断方式, 转onnx后该分支不会再运行
-                per_box_cls, top_k_indices = \
-                    per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-                per_class = per_class[top_k_indices]
-                per_box_regression = per_box_regression[top_k_indices]
-                per_locations = per_locations[top_k_indices]
+            print('per_pre_nms_top_n', per_pre_nms_top_n)
+            # if per_candidate_nonzeros.shape[0] > per_pre_nms_top_n.item():  # 替换判断方式, 转onnx后该分支不会再运行
+            #     per_box_cls, top_k_indices = \
+            #         per_box_cls.topk(per_pre_nms_top_n.to(torch.int64).item(), sorted=False)
+            #     per_class = per_class[top_k_indices]
+            #     per_box_regression = per_box_regression[top_k_indices]
+            #     per_locations = per_locations[top_k_indices]
 
             detections = torch.stack([
                 per_locations[:, 0] - per_box_regression[:, 0],

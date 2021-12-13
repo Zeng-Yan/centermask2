@@ -79,7 +79,7 @@ if __name__ == "__main__":
         outputs = single_flatten_to_tuple(outputs[0]['instances'])
         print('\n' * 5, f'shapes of post processed outputs:\n {[i.shape for i in outputs]}', '\n' * 5)
 
-    # convert to onnx
+    # convert into onnx
     input_names = ['img']
     output_names = ['locations', 'mask_scores', 'pred_boxes', 'pred_classes', 'pred_masks', 'scores']
     dynamic_axes = {
@@ -91,79 +91,79 @@ if __name__ == "__main__":
         'scores': [0]
     }
     onnx_path = 'centermask2.onnx'
-    print('Converting model to ONNX ... ')
+    print('Converting model into ONNX ... ')
     torch.onnx.export(model, inputs, onnx_path,
                       input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes,
                       opset_version=args.version, verbose=args.verbose_on)
 
-    print('Modify the structure of ONNX ... ')
-    model = onnx.load(onnx_path)
-
-    print('Modify slice nodes ... ')
-    lst_node_idx = []
-    for idx, n in enumerate(model.graph.node):
-        if (n.name.find('Slice') != -1) and (model.graph.node[idx + 1].name.find('Cast') != -1):
-            node_id = idx  # 节点在onnx中真实的索引
-            lst_node_idx.append(node_id)
-    lst_node_idx = lst_node_idx[0:6]
-    print(lst_node_idx)
-
-    lst_drop = []
-    for idx in lst_node_idx:
-        slice_node = model.graph.node[idx]  # 按索引获取节点
-        lst_drop.append(slice_node)
-        # print(f'\nInputs of node {idx} ({slice_node.name}): ', slice_node.input)
-        # print(f'Outputs of node {idx} ({slice_node.name}): ', slice_node.output)
-        cast_idx = idx + 1
-        cast_node = model.graph.node[idx + 1]
-        cast_new = onnx.helper.make_node(
-            'Cast',
-            name=f'Cast_m_{cast_idx}',
-            inputs=[slice_node.input[0]],
-            outputs=cast_node.output,
-            to=7
-        )  # 创建新节点
-
-        model.graph.node.remove(cast_node)  # 删除原节点
-        model.graph.node.insert(cast_idx, cast_new)  # 添加新节点
-        # print(f'New node {cast_idx}:')
-        # print(model.graph.node[cast_idx])
-    for node in lst_drop:
-        model.graph.node.remove(node)
-
-    if args.fix_k:
-        print('Saving ONNX ... ')
-        onnx.save(model, onnx_path)
-        print('All Done.')
-        exit('No further Modification for ONNX so the K of TopK is fixed ... ')
-
-    print('Modify TopK nodes ... ')
-    lst_node_idx = []
-    for idx, n in enumerate(model.graph.node):
-        if n.name.find('TopK') != -1:
-            node_id = idx  # 节点在onnx中真实的索引
-            lst_node_idx.append(node_id)
-    print(lst_node_idx)
-
-    for idx in lst_node_idx:
-        node = model.graph.node[idx]  # 按索引获取节点
-        # print(f'\nInputs of node {idx} ({node.name}): ', node.input)
-        # print(f'Outputs of node {idx} ({node.name}): ', node.output)
-        inputs_new = [node.input[0], model.graph.node[idx - 1].output[0]]  # 修改输入
-        outputs_new = node.output  # 修改输出
-        topk_new = onnx.helper.make_node(
-            'TopK',
-            name=f'TopK_m_{idx}',
-            inputs=inputs_new,
-            outputs=outputs_new
-        )  # 创建新节点
-
-        model.graph.node.remove(node)  # 删除原节点
-        model.graph.node.insert(idx, topk_new)  # 添加新节点
-        # print(f'New node {idx}:')
-        # print(model.graph.node[idx])
-
-    # onnx.checker.check_model(model)  # 替换自定义算子后check无法通过
-    print('Saving ONNX ... ')
-    onnx.save(model, onnx_path)
-    print('All Done.')
+    # print('Modify the structure of ONNX ... ')
+    # model = onnx.load(onnx_path)
+    #
+    # print('Modify slice nodes ... ')
+    # lst_node_idx = []
+    # for idx, n in enumerate(model.graph.node):
+    #     if (n.name.find('Slice') != -1) and (model.graph.node[idx + 1].name.find('Cast') != -1):
+    #         node_id = idx  # 节点在onnx中真实的索引
+    #         lst_node_idx.append(node_id)
+    # lst_node_idx = lst_node_idx[0:6]
+    # print(lst_node_idx)
+    #
+    # lst_drop = []
+    # for idx in lst_node_idx:
+    #     slice_node = model.graph.node[idx]  # 按索引获取节点
+    #     lst_drop.append(slice_node)
+    #     # print(f'\nInputs of node {idx} ({slice_node.name}): ', slice_node.input)
+    #     # print(f'Outputs of node {idx} ({slice_node.name}): ', slice_node.output)
+    #     cast_idx = idx + 1
+    #     cast_node = model.graph.node[idx + 1]
+    #     cast_new = onnx.helper.make_node(
+    #         'Cast',
+    #         name=f'Cast_m_{cast_idx}',
+    #         inputs=[slice_node.input[0]],
+    #         outputs=cast_node.output,
+    #         to=7
+    #     )  # 创建新节点
+    #
+    #     model.graph.node.remove(cast_node)  # 删除原节点
+    #     model.graph.node.insert(cast_idx, cast_new)  # 添加新节点
+    #     # print(f'New node {cast_idx}:')
+    #     # print(model.graph.node[cast_idx])
+    # for node in lst_drop:
+    #     model.graph.node.remove(node)
+    #
+    # if args.fix_k:
+    #     print('Saving ONNX ... ')
+    #     onnx.save(model, onnx_path)
+    #     print('All Done.')
+    #     exit('No further Modification for ONNX so the K of TopK is fixed ... ')
+    #
+    # print('Modify TopK nodes ... ')
+    # lst_node_idx = []
+    # for idx, n in enumerate(model.graph.node):
+    #     if n.name.find('TopK') != -1:
+    #         node_id = idx  # 节点在onnx中真实的索引
+    #         lst_node_idx.append(node_id)
+    # print(lst_node_idx)
+    #
+    # for idx in lst_node_idx:
+    #     node = model.graph.node[idx]  # 按索引获取节点
+    #     # print(f'\nInputs of node {idx} ({node.name}): ', node.input)
+    #     # print(f'Outputs of node {idx} ({node.name}): ', node.output)
+    #     inputs_new = [node.input[0], model.graph.node[idx - 1].output[0]]  # 修改输入
+    #     outputs_new = node.output  # 修改输出
+    #     topk_new = onnx.helper.make_node(
+    #         'TopK',
+    #         name=f'TopK_m_{idx}',
+    #         inputs=inputs_new,
+    #         outputs=outputs_new
+    #     )  # 创建新节点
+    #
+    #     model.graph.node.remove(node)  # 删除原节点
+    #     model.graph.node.insert(idx, topk_new)  # 添加新节点
+    #     # print(f'New node {idx}:')
+    #     # print(model.graph.node[idx])
+    #
+    # # onnx.checker.check_model(model)  # 替换自定义算子后check无法通过
+    # print('Saving ONNX ... ')
+    # onnx.save(model, onnx_path)
+    # print('All Done.')
